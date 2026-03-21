@@ -1,0 +1,5 @@
+opencv-contrib-python
+mysql-connector-python
+pandas
+numpy
+Pillow

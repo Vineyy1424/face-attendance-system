@@ -2,6 +2,7 @@ import cv2
 import mysql.connector
 from datetime import date
 import os
+from db_schema import ensure_schema
 
 # DATABASE CONNECTION
 db = mysql.connector.connect(
@@ -12,6 +13,7 @@ db = mysql.connector.connect(
 )
 
 cursor = db.cursor()
+ensure_schema(db, cursor)
 
 # LOAD TRAINED MODEL
 recognizer = cv2.face.LBPHFaceRecognizer_create()
@@ -42,6 +44,7 @@ while True:
     faces = face_cascade.detectMultiScale(gray, 1.3, 5)
 
     for (x, y, w, h) in faces:
+        label = "Unknown"
 
         student_id, confidence = recognizer.predict(gray[y:y+h, x:x+w])
 

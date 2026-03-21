@@ -1,5 +1,6 @@
 import mysql.connector
 import pandas as pd
+from db_schema import ensure_schema
 
 # Database connection
 db = mysql.connector.connect(
@@ -8,6 +9,9 @@ db = mysql.connector.connect(
     password="root",
     database="smart_attendance"
 )
+
+cursor = db.cursor()
+ensure_schema(db, cursor)
 
 query = """
 SELECT students.student_id,

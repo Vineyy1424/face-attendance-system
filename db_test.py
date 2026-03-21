@@ -1,4 +1,5 @@
 import mysql.connector
+from db_schema import ensure_schema
 
 db = mysql.connector.connect(
     host="localhost",
@@ -8,6 +9,7 @@ db = mysql.connector.connect(
 )
 
 cursor = db.cursor()
+ensure_schema(db, cursor)
 cursor.execute("SHOW TABLES")
 
 for table in cursor:

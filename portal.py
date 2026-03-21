@@ -1,4 +1,5 @@
 import mysql.connector
+from db_schema import ensure_schema
 
 # Connect to database
 
@@ -10,6 +11,7 @@ database="smart_attendance"
 )
 
 cursor = db.cursor()
+ensure_schema(db, cursor)
 
 print("SMART ATTENDANCE PORTAL")
 

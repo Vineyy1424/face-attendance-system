@@ -2,6 +2,7 @@ import os
 import cv2
 import time
 import mysql.connector
+from db_schema import ensure_schema
 
 # Connect to MySQL
 db = mysql.connector.connect(
@@ -12,6 +13,7 @@ db = mysql.connector.connect(
 )
 
 cursor = db.cursor()
+ensure_schema(db, cursor)
 
 # Take student details
 name = input("Enter Name: ")

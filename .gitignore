@@ -1,0 +1,18 @@
+# Python cache/artifacts
+__pycache__/
+*.py[cod]
+
+# VS Code local workspace settings
+.vscode/
+
+# Local environment files
+.env
+.venv/
+venv/
+
+# Generated outputs
+attendance_report.xlsx
+
+# Keep dataset tracked
+!dataset/
+!dataset/**
