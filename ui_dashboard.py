@@ -28,6 +28,7 @@ class SmartAttendanceUI:
         self.warn = "#f4a261"
 
         self.root.configure(bg=self.bg)
+        self.base_dir = os.path.dirname(os.path.abspath(__file__))
 
         self.status_var = tk.StringVar(value="Ready")
         self.busy_var = tk.BooleanVar(value=False)
@@ -250,6 +251,13 @@ class SmartAttendanceUI:
 
         ttk.Button(
             left,
+            text="Open Student Attendance Table",
+            style="Ghost.TButton",
+            command=self.open_student_attendance_ui,
+        ).pack(fill="x", pady=6)
+
+        ttk.Button(
+            left,
             text="DB Health Check",
             style="Ghost.TButton",
             command=self.run_db_check,
@@ -395,7 +403,11 @@ class SmartAttendanceUI:
 
             self._capture_faces(student_id)
 
-            subprocess.run([sys.executable, "train_model.py"], check=True)
+            subprocess.run(
+                [sys.executable, os.path.join(self.base_dir, "train_model.py")],
+                check=True,
+                cwd=self.base_dir,
+            )
 
             self.root.after(
                 0,
@@ -428,8 +440,9 @@ class SmartAttendanceUI:
             self.root.after(0, self.refresh_recent_attendance)
 
     def _capture_faces(self, student_id):
-        if not os.path.exists("dataset"):
-            os.makedirs("dataset")
+        dataset_dir = os.path.join(self.base_dir, "dataset")
+        if not os.path.exists(dataset_dir):
+            os.makedirs(dataset_dir)
 
         cam = cv2.VideoCapture(0)
         face_detector = cv2.CascadeClassifier(
@@ -448,7 +461,8 @@ class SmartAttendanceUI:
 
             for (x, y, w, h) in faces:
                 count += 1
-                cv2.imwrite(f"dataset/user.{student_id}.{count}.jpg", gray[y : y + h, x : x + w])
+                image_path = os.path.join(dataset_dir, f"user.{student_id}.{count}.jpg")
+                cv2.imwrite(image_path, gray[y : y + h, x : x + w])
                 cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 0), 2)
                 cv2.imshow("Register Face", img)
                 cv2.waitKey(120)
@@ -464,7 +478,10 @@ class SmartAttendanceUI:
 
     def start_main_attendance(self):
         try:
-            subprocess.Popen([sys.executable, "Main.py"])
+            subprocess.Popen(
+                [sys.executable, os.path.join(self.base_dir, "Main.py")],
+                cwd=self.base_dir,
+            )
             self.set_status("Attendance process started")
         except Exception as exc:
             messagebox.showerror("Error", str(exc))
@@ -473,7 +490,11 @@ class SmartAttendanceUI:
         def worker():
             try:
                 self.root.after(0, lambda: self.set_status("Training model..."))
-                subprocess.run([sys.executable, "train_model.py"], check=True)
+                subprocess.run(
+                    [sys.executable, os.path.join(self.base_dir, "train_model.py")],
+                    check=True,
+                    cwd=self.base_dir,
+                )
                 self.root.after(0, lambda: self.set_status("Model training complete"))
                 self.root.after(0, lambda: messagebox.showinfo("Done", "Model trained successfully."))
             except Exception as exc:
@@ -483,8 +504,21 @@ class SmartAttendanceUI:
 
     def open_portal(self):
         try:
-            subprocess.Popen([sys.executable, "portal.py"])
+            subprocess.Popen(
+                [sys.executable, os.path.join(self.base_dir, "portal.py")],
+                cwd=self.base_dir,
+            )
             self.set_status("Portal opened in terminal process")
+        except Exception as exc:
+            messagebox.showerror("Error", str(exc))
+
+    def open_student_attendance_ui(self):
+        try:
+            subprocess.Popen(
+                [sys.executable, os.path.join(self.base_dir, "student_attendance_ui.py")],
+                cwd=self.base_dir,
+            )
+            self.set_status("Student attendance table opened")
         except Exception as exc:
             messagebox.showerror("Error", str(exc))
 
@@ -502,7 +536,11 @@ class SmartAttendanceUI:
 
     def export_report(self):
         try:
-            subprocess.run([sys.executable, "export_attendance.py"], check=True)
+            subprocess.run(
+                [sys.executable, os.path.join(self.base_dir, "export_attendance.py")],
+                check=True,
+                cwd=self.base_dir,
+            )
             self.set_status("Attendance report exported")
             messagebox.showinfo("Done", "attendance_report.xlsx generated.")
             self.refresh_recent_attendance()
@@ -510,7 +548,7 @@ class SmartAttendanceUI:
             messagebox.showerror("Export Error", str(exc))
 
     def open_report_file(self):
-        report_path = os.path.abspath("attendance_report.xlsx")
+        report_path = os.path.join(self.base_dir, "attendance_report.xlsx")
         if not os.path.exists(report_path):
             messagebox.showwarning("Missing File", "Run export first to create attendance_report.xlsx")
             return
