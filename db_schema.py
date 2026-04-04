@@ -1,3 +1,9 @@
+def _ensure_column(cursor, table_name, column_name, definition_sql):
+    cursor.execute(f"SHOW COLUMNS FROM {table_name} LIKE %s", (column_name,))
+    if cursor.fetchone() is None:
+        cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition_sql}")
+
+
 def ensure_schema(db, cursor):
     cursor.execute(
         """
@@ -35,5 +41,19 @@ def ensure_schema(db, cursor):
         )
         """
     )
+
+    _ensure_column(cursor, "teachers", "full_name", "VARCHAR(120) NOT NULL DEFAULT 'Teacher'")
+    _ensure_column(cursor, "teachers", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
+    _ensure_column(cursor, "teachers", "last_login_at", "DATETIME NULL")
+
+    cursor.execute("SELECT teacher_id FROM teachers WHERE username=%s", ("admin",))
+    if cursor.fetchone() is None:
+        cursor.execute(
+            """
+            INSERT INTO teachers (username, password, full_name)
+            VALUES (%s, %s, %s)
+            """,
+            ("admin", "admin", "Administrator"),
+        )
 
     db.commit()
