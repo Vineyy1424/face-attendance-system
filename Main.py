@@ -2,7 +2,25 @@ import cv2
 import mysql.connector
 from datetime import date
 import os
+import sys
 from db_schema import ensure_schema
+
+
+def open_camera(index=0):
+    backends = [None]
+    if sys.platform == "darwin":
+        backends = [cv2.CAP_AVFOUNDATION, None]
+    elif sys.platform.startswith("win"):
+        backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, None]
+
+    for backend in backends:
+        cam = cv2.VideoCapture(index) if backend is None else cv2.VideoCapture(index, backend)
+        if cam is not None and cam.isOpened():
+            return cam
+        if cam is not None:
+            cam.release()
+
+    return None
 
 # DATABASE CONNECTION
 db = mysql.connector.connect(
@@ -24,7 +42,11 @@ face_cascade = cv2.CascadeClassifier(
 )
 
 # CAMERA
-cam = cv2.VideoCapture(0)
+cam = open_camera(0)
+if cam is None:
+    raise RuntimeError(
+        "Unable to open the camera. On macOS, allow camera access for Terminal/Python from System Settings."
+    )
 
 # Students already marked today in this session
 marked_students = set()
@@ -39,6 +61,9 @@ print("Press Q to quit\n")
 while True:
 
     ret, frame = cam.read()
+    if not ret or frame is None:
+        continue
+
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
     faces = face_cascade.detectMultiScale(gray, 1.3, 5)

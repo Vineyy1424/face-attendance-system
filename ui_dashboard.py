@@ -1,6 +1,7 @@
 import os
 import sys
 import math
+import time
 from collections import deque
 import threading
 import subprocess
@@ -1452,7 +1453,7 @@ class SmartAttendanceUI:
             db.commit()
             student_id = cursor.lastrowid
 
-            self._capture_faces(student_id)
+            self._capture_faces_on_ui_thread(student_id)
 
             subprocess.run(
                 [sys.executable, os.path.join(self.base_dir, "train_model.py")],
@@ -1490,22 +1491,71 @@ class SmartAttendanceUI:
             self.root.after(0, lambda: self.with_busy_state(False))
             self.root.after(0, self.refresh_recent_attendance)
 
+    def _capture_faces_on_ui_thread(self, student_id):
+        capture_complete = threading.Event()
+        state = {"error": None}
+
+        def run_capture():
+            try:
+                self._capture_faces(student_id)
+            except Exception as exc:
+                state["error"] = exc
+            finally:
+                capture_complete.set()
+
+        self.root.after(0, run_capture)
+        capture_complete.wait()
+
+        if state["error"]:
+            raise state["error"]
+
+    def _open_camera(self):
+        backends = [None]
+        if sys.platform == "darwin":
+            backends = [cv2.CAP_AVFOUNDATION, None]
+        elif sys.platform.startswith("win"):
+            backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, None]
+
+        for backend in backends:
+            cam = cv2.VideoCapture(0) if backend is None else cv2.VideoCapture(0, backend)
+            if cam is not None and cam.isOpened():
+                return cam
+            if cam is not None:
+                cam.release()
+
+        return None
+
     def _capture_faces(self, student_id):
         dataset_dir = os.path.join(self.base_dir, "dataset")
         if not os.path.exists(dataset_dir):
             os.makedirs(dataset_dir)
 
-        cam = cv2.VideoCapture(0)
+        cam = self._open_camera()
+        if cam is None:
+            raise RuntimeError(
+                "Unable to open the camera. On macOS, allow camera access for Terminal/Python from System Settings."
+            )
+
         face_detector = cv2.CascadeClassifier(
             cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
         )
+        if face_detector.empty():
+            cam.release()
+            raise RuntimeError("Failed to load Haar cascade for face detection.")
 
         count = 0
+        failed_reads = 0
 
         while True:
             ret, img = cam.read()
-            if not ret:
+            if not ret or img is None:
+                failed_reads += 1
+                if failed_reads > 60:
+                    raise RuntimeError("Camera is open but frames cannot be read.")
+                time.sleep(0.03)
                 continue
+
+            failed_reads = 0
 
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             faces = face_detector.detectMultiScale(gray, 1.3, 5)
