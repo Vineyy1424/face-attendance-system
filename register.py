@@ -1,8 +1,26 @@
 import os
 import cv2
 import time
+import sys
 import mysql.connector
 from db_schema import ensure_schema
+
+
+def open_camera(index=0):
+    backends = [None]
+    if sys.platform == "darwin":
+        backends = [cv2.CAP_AVFOUNDATION, None]
+    elif sys.platform.startswith("win"):
+        backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, None]
+
+    for backend in backends:
+        cam = cv2.VideoCapture(index) if backend is None else cv2.VideoCapture(index, backend)
+        if cam is not None and cam.isOpened():
+            return cam
+        if cam is not None:
+            cam.release()
+
+    return None
 
 # Connect to MySQL
 db = mysql.connector.connect(
@@ -38,7 +56,11 @@ if not os.path.exists("dataset"):
     os.makedirs("dataset")
 
 # Start camera
-cam = cv2.VideoCapture(0)
+cam = open_camera(0)
+if cam is None:
+    raise RuntimeError(
+        "Unable to open the camera. On macOS, allow camera access for Terminal/Python from System Settings."
+    )
 
 import time
 time.sleep(2)
@@ -54,6 +76,9 @@ print("Look at the camera...")
 while True:
 
     ret, img = cam.read()
+    if not ret or img is None:
+        continue
+
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     faces = face_detector.detectMultiScale(gray, 1.3, 5)
