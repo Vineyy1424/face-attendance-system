@@ -41,14 +41,21 @@ while True:
     ret, frame = cam.read()
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+    faces = face_cascade.detectMultiScale(gray, 1.2, 6, minSize=(100,100))
+
+    # Only allow recognition if exactly ONE face is visible
+    if len(faces) != 1:
+        cv2.imshow("Smart Attendance System", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+        continue
 
     for (x, y, w, h) in faces:
         label = "Unknown"
 
         student_id, confidence = recognizer.predict(gray[y:y+h, x:x+w])
 
-        if confidence < 60:
+        if confidence < 50:
 
             # Increase detection count
             if student_id in face_counter:
