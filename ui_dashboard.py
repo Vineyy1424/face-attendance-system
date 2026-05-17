@@ -6,6 +6,7 @@ from collections import deque
 import threading
 import subprocess
 from datetime import datetime, date, timedelta
+import calendar
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 
@@ -110,6 +111,112 @@ def prepare_logo_image(image, size):
 
     image = remove_dark_edge_background(image)
     return image.resize((size, size), Image.LANCZOS)
+
+
+class DatePicker:
+    """Simple popup calendar for picking a date (YYYY-MM-DD)."""
+    def __init__(self, parent, entry):
+        self.parent = parent
+        self.entry = entry
+        today = datetime.today()
+        self.year = today.year
+        self.month = today.month
+        self.win = None
+
+    def show(self, x=None, y=None):
+        if self.win is not None:
+            try:
+                self.win.lift()
+                return
+            except Exception:
+                self.win = None
+
+        self.win = tk.Toplevel(self.parent.root if hasattr(self.parent, 'root') else self.parent)
+        self.win.wm_overrideredirect(True)
+        self.win.attributes('-topmost', True)
+
+        if x is None or y is None:
+            try:
+                ex = self.entry.winfo_rootx()
+                ey = self.entry.winfo_rooty() + self.entry.winfo_height()
+                x, y = ex, ey
+            except Exception:
+                x, y = 100, 100
+
+        self.win.geometry(f'+{x}+{y}')
+
+        frame = tk.Frame(self.win, bd=1, relief='solid')
+        frame.pack()
+
+        header = tk.Frame(frame)
+        header.pack(fill='x')
+        prev_btn = tk.Button(header, text='<', width=2, command=self._prev_month)
+        prev_btn.pack(side='left')
+        self.title_lbl = tk.Label(header, text='', width=18)
+        self.title_lbl.pack(side='left', padx=6)
+        next_btn = tk.Button(header, text='>', width=2, command=self._next_month)
+        next_btn.pack(side='left')
+
+        self.days_frame = tk.Frame(frame)
+        self.days_frame.pack()
+
+        self._draw_calendar()
+
+        # close when clicking outside
+        self.win.bind('<FocusOut>', lambda e: self.destroy())
+        self.win.focus_force()
+
+    def destroy(self):
+        try:
+            if self.win:
+                self.win.destroy()
+        finally:
+            self.win = None
+
+    def _prev_month(self):
+        self.month -= 1
+        if self.month < 1:
+            self.month = 12
+            self.year -= 1
+        self._draw_calendar()
+
+    def _next_month(self):
+        self.month += 1
+        if self.month > 12:
+            self.month = 1
+            self.year += 1
+        self._draw_calendar()
+
+    def _draw_calendar(self):
+        for w in self.days_frame.winfo_children():
+            w.destroy()
+
+        self.title_lbl.config(text=f"{calendar.month_name[self.month]} {self.year}")
+
+        wkdays = ['Mo','Tu','We','Th','Fr','Sa','Su']
+        header = tk.Frame(self.days_frame)
+        header.pack()
+        for i, d in enumerate(wkdays):
+            tk.Label(header, text=d, width=3, font=("Segoe UI", 9, 'bold')).grid(row=0, column=i)
+
+        m = calendar.monthcalendar(self.year, self.month)
+        for r, week in enumerate(m):
+            for c, day in enumerate(week):
+                if day == 0:
+                    lbl = tk.Label(self.days_frame, text='', width=3)
+                    lbl.grid(row=r+1, column=c, padx=2, pady=2)
+                else:
+                    btn = tk.Button(self.days_frame, text=str(day), width=3, command=lambda d=day: self._select(d))
+                    btn.grid(row=r+1, column=c, padx=2, pady=2)
+
+    def _select(self, day):
+        dt = datetime(self.year, self.month, day).strftime('%Y-%m-%d')
+        try:
+            self.entry.delete(0, tk.END)
+            self.entry.insert(0, dt)
+        except Exception:
+            pass
+        self.destroy()
 
 
 def find_logo_candidates(base_dir):
@@ -416,13 +523,23 @@ class RoleSelectionUI:
         return ImageTk.PhotoImage(image)
 
     def _animate_role_glow(self):
-        glow_strength = (math.sin(self.glow_phase) + 1) / 2
-        outer_color = mix_hex_color("#123763", "#00d9ff", glow_strength)
-        inner_color = mix_hex_color("#0a2a45", "#50e8ff", glow_strength)
-        self.role_logo_canvas.itemconfigure(self.role_outer_ring, outline=outer_color, width=2 + int(glow_strength * 2))
-        self.role_logo_canvas.itemconfigure(self.role_inner_ring, outline=inner_color, width=1 + int(glow_strength))
+        if not self.root.winfo_exists():
+            return
+
+        try:
+            if not self.role_logo_canvas.winfo_exists():
+                return
+            glow_strength = (math.sin(self.glow_phase) + 1) / 2
+            outer_color = mix_hex_color("#123763", "#00d9ff", glow_strength)
+            inner_color = mix_hex_color("#0a2a45", "#50e8ff", glow_strength)
+            self.role_logo_canvas.itemconfigure(self.role_outer_ring, outline=outer_color, width=2 + int(glow_strength * 2))
+            self.role_logo_canvas.itemconfigure(self.role_inner_ring, outline=inner_color, width=1 + int(glow_strength))
+        except tk.TclError:
+            return
+
         self.glow_phase += 0.16
-        self.root.after(60, self._animate_role_glow)
+        if self.root.winfo_exists():
+            self.root.after(60, self._animate_role_glow)
 
     def _teacher_login_flow(self):
         entered_username = simpledialog.askstring(
@@ -600,34 +717,40 @@ class RoleSelectionUI:
             font=("Segoe UI", 9),
         ).pack(anchor="w", pady=(4, 0))
 
-        state = {"value": 0, "phase": 0.0}
+        state = {"value": 0, "phase": 0.0, "after_id": None}
 
         def animate():
+            if not splash.winfo_exists():
+                return
+
             state["value"] = min(100, state["value"] + 3)
             state["phase"] += 0.22
 
-            glow_strength = (math.sin(state["phase"]) + 1) / 2
-            outer_color = mix_hex_color("#123763", "#00d9ff", glow_strength)
-            inner_color = mix_hex_color("#0a2a45", "#50e8ff", glow_strength)
-            logo_canvas.itemconfigure(logo_outer_ring, outline=outer_color, width=2 + int(glow_strength * 2))
-            logo_canvas.itemconfigure(logo_inner_ring, outline=inner_color, width=1 + int(glow_strength))
+            try:
+                glow_strength = (math.sin(state["phase"]) + 1) / 2
+                outer_color = mix_hex_color("#123763", "#00d9ff", glow_strength)
+                inner_color = mix_hex_color("#0a2a45", "#50e8ff", glow_strength)
+                logo_canvas.itemconfigure(logo_outer_ring, outline=outer_color, width=2 + int(glow_strength * 2))
+                logo_canvas.itemconfigure(logo_inner_ring, outline=inner_color, width=1 + int(glow_strength))
 
-            total_width = progress_wrap.winfo_width() or 460
-            fill_width = int((state["value"] / 100) * total_width)
-            progress_fill.config(width=max(0, fill_width))
-            percent_label.config(text=f"{state['value']}%")
+                total_width = progress_wrap.winfo_width() or 460
+                fill_width = int((state["value"] / 100) * total_width)
+                progress_fill.config(width=max(0, fill_width))
+                percent_label.config(text=f"{state['value']}%")
 
-            message_index = min(len(detail_messages) - 1, state["value"] // 25)
-            detail_var.set(detail_messages[message_index])
+                message_index = min(len(detail_messages) - 1, state["value"] // 25)
+                detail_var.set(detail_messages[message_index])
+            except tk.TclError:
+                return
 
             if state["value"] < 100:
-                splash.after(24, animate)
+                state["after_id"] = splash.after(24, animate)
                 return
 
             splash.destroy()
             on_done()
 
-        animate()
+        state["after_id"] = splash.after(24, animate)
 
 
 class SmartAttendanceUI:
@@ -644,12 +767,15 @@ class SmartAttendanceUI:
         self.root.minsize(960, 640)
 
         self.bg = "#020814"
-        self.panel = "#091a35"
-        self.panel_alt = "#0f274a"
+        # refreshed color palette for improved visuals
+        self.bg = "#071026"
+        self.sidebar = "#081a2b"
+        self.panel = "#0b3554"
+        self.panel_alt = "#083049"
         self.text = "#eaf8ff"
-        self.subtext = "#8cc8ea"
-        self.accent = "#00d9ff"
-        self.warn = "#31d9ff"
+        self.subtext = "#9fd6ea"
+        self.accent = "#00e6ff"
+        self.warn = "#ffd166"
 
         self.root.configure(bg=self.bg)
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -662,6 +788,8 @@ class SmartAttendanceUI:
         self.attendance_rate_var = tk.StringVar(value="--")
         self.weekly_trend_var = tk.StringVar(value="--")
         self.teacher_session_var = tk.StringVar(value=self._build_teacher_session_text())
+        self.editing_student_id = None
+        self.student_autocomplete_items = []
 
         self._configure_style()
         self._build_layout()
@@ -674,6 +802,7 @@ class SmartAttendanceUI:
 
         style.configure("Base.TFrame", background=self.bg)
         style.configure("Card.TFrame", background=self.panel)
+        style.configure("Sidebar.TFrame", background=self.sidebar)
         style.configure("AltCard.TFrame", background=self.panel_alt)
         style.configure("MetricCard.TFrame", background="#0c2244")
 
@@ -725,13 +854,28 @@ class SmartAttendanceUI:
             background=self.accent,
             foreground="#02101f",
             borderwidth=0,
-            padding=(12, 8),
-            font=("Segoe UI Semibold", 10),
+            padding=(12, 10),
+            font=("Segoe UI Semibold", 11),
         )
         style.map(
             "Accent.TButton",
-            background=[("active", "#50e8ff")],
+            background=[("active", "#7ef6ff")],
             foreground=[("active", "#02101f")],
+        )
+
+        style.configure(
+            "Nav.TButton",
+            background=self.sidebar,
+            foreground=self.text,
+            borderwidth=0,
+            padding=(12, 12),
+            font=("Segoe UI Semibold", 11),
+            anchor="w",
+        )
+        style.map(
+            "Nav.TButton",
+            background=[("active", "#0d3f5a")],
+            foreground=[("active", self.text)],
         )
 
         style.configure(
@@ -740,7 +884,7 @@ class SmartAttendanceUI:
             foreground=self.text,
             borderwidth=1,
             relief="solid",
-            padding=(12, 8),
+            padding=(10, 8),
             font=("Segoe UI", 10),
         )
         style.map(
@@ -871,6 +1015,7 @@ class SmartAttendanceUI:
 
         status_bar = tk.Frame(outer, bg="#050f20", height=30)
         status_bar.pack(fill="x", pady=(14, 0))
+        status_bar.pack_propagate(False)
 
         status_label = tk.Label(
             status_bar,
@@ -910,35 +1055,59 @@ class SmartAttendanceUI:
         window_id = canvas.create_window((0, 0), window=content, anchor="nw")
 
         def update_scrollregion(_event):
-            canvas.configure(scrollregion=canvas.bbox("all"))
+            try:
+                canvas.configure(scrollregion=canvas.bbox("all"))
+            except tk.TclError:
+                return
 
         def update_content_width(event):
-            canvas.itemconfigure(window_id, width=event.width)
+            try:
+                canvas.itemconfigure(window_id, width=event.width)
+            except tk.TclError:
+                return
 
         def on_mousewheel(event):
-            if event.delta:
-                canvas.yview_scroll(int(-event.delta / 120), "units")
+            try:
+                if event.delta:
+                    canvas.yview_scroll(int(-event.delta / 120), "units")
+            except tk.TclError:
+                return
 
         def on_linux_scroll_up(_event):
-            canvas.yview_scroll(-1, "units")
+            try:
+                canvas.yview_scroll(-1, "units")
+            except tk.TclError:
+                return
 
         def on_linux_scroll_down(_event):
-            canvas.yview_scroll(1, "units")
+            try:
+                canvas.yview_scroll(1, "units")
+            except tk.TclError:
+                return
 
         def bind_mousewheel(_event):
-            canvas.bind_all("<MouseWheel>", on_mousewheel)
-            canvas.bind_all("<Button-4>", on_linux_scroll_up)
-            canvas.bind_all("<Button-5>", on_linux_scroll_down)
+            self.root.bind_all("<MouseWheel>", on_mousewheel)
+            self.root.bind_all("<Button-4>", on_linux_scroll_up)
+            self.root.bind_all("<Button-5>", on_linux_scroll_down)
 
         def unbind_mousewheel(_event):
-            canvas.unbind_all("<MouseWheel>")
-            canvas.unbind_all("<Button-4>")
-            canvas.unbind_all("<Button-5>")
+            self.root.unbind_all("<MouseWheel>")
+            self.root.unbind_all("<Button-4>")
+            self.root.unbind_all("<Button-5>")
+
+        def cleanup(_event=None):
+            try:
+                self.root.unbind_all("<MouseWheel>")
+                self.root.unbind_all("<Button-4>")
+                self.root.unbind_all("<Button-5>")
+            except tk.TclError:
+                return
 
         content.bind("<Configure>", update_scrollregion)
         canvas.bind("<Configure>", update_content_width)
         content.bind("<Enter>", bind_mousewheel)
         content.bind("<Leave>", unbind_mousewheel)
+        holder.bind("<Destroy>", cleanup, add="+")
 
         return content
 
@@ -992,15 +1161,73 @@ class SmartAttendanceUI:
         )
         self.register_button.grid(row=8, column=0, pady=(18, 0), sticky="w")
 
-        ttk.Button(
+        self.cancel_edit_button = ttk.Button(
             card,
-            text="Clear",
+            text="Cancel Edit",
             style="Ghost.TButton",
             command=self.clear_register_fields,
-        ).grid(row=8, column=1, pady=(18, 0), sticky="e")
+        )
+        self.cancel_edit_button.grid(row=8, column=1, pady=(18, 0), sticky="e")
+
+        # Edit banner (hidden by default)
+        self.edit_banner = tk.Label(
+            card,
+            text="",
+            bg="#fff3bf",
+            fg="#4a3e00",
+            font=("Segoe UI", 10),
+            pady=6,
+        )
+        self.edit_banner.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        self.edit_banner.grid_remove()
 
         card.columnconfigure(0, weight=1)
         card.columnconfigure(1, weight=1)
+        
+        # Student list and actions
+        student_list_card = ttk.Frame(content, style="Card.TFrame", padding=12)
+        student_list_card.pack(fill="both", expand=True, pady=(12, 0))
+
+        ttk.Label(student_list_card, text="Students", style="CardTitle.TLabel").pack(anchor="w")
+
+        actions = ttk.Frame(student_list_card, style="Base.TFrame")
+        actions.pack(fill="x", pady=(8, 6))
+
+        ttk.Button(
+            actions,
+            text="Load Selected",
+            style="Ghost.TButton",
+            command=self.load_selected_student,
+        ).pack(side="left")
+
+        ttk.Button(
+            actions,
+            text="Delete Selected",
+            style="Ghost.TButton",
+            command=self.delete_selected_student,
+        ).pack(side="left", padx=8)
+
+        ttk.Button(
+            actions,
+            text="Refresh Students",
+            style="Ghost.TButton",
+            command=self.refresh_students_list,
+        ).pack(side="left")
+
+        student_columns = ("student_id", "name", "roll_no", "birthdate")
+        self.student_tree = ttk.Treeview(student_list_card, columns=student_columns, show="headings", height=8)
+        self.student_tree.heading("student_id", text="ID")
+        self.student_tree.heading("name", text="Name")
+        self.student_tree.heading("roll_no", text="Roll No")
+        self.student_tree.heading("birthdate", text="Birthdate")
+
+        self.student_tree.column("student_id", width=70, anchor="center")
+        self.student_tree.column("name", width=240, anchor="w")
+        self.student_tree.column("roll_no", width=140, anchor="w")
+        self.student_tree.column("birthdate", width=140, anchor="center")
+
+        self.student_tree.pack(fill="both", expand=True)
+        self.refresh_students_list()
 
     def _build_ops_tab(self):
         content = self._create_scroll_container(self.ops_tab)
@@ -1008,59 +1235,53 @@ class SmartAttendanceUI:
         grid = ttk.Frame(content, style="Base.TFrame")
         grid.pack(fill="both", expand=True)
 
-        left = ttk.Frame(grid, style="Card.TFrame", padding=18)
+        # left acts as a vertical sidebar (navigation / quick actions)
+        left = ttk.Frame(grid, style="Sidebar.TFrame", padding=12)
         right = ttk.Frame(grid, style="AltCard.TFrame", padding=18)
-        left.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        left.pack(side="left", fill="y", expand=False, padx=(0, 12))
         right.pack(side="left", fill="both", expand=True)
+        left.configure(width=260)
+        left.pack_propagate(False)
 
-        ttk.Label(left, text="Live Operations", style="CardTitle.TLabel").pack(anchor="w")
-        ttk.Label(
-            left,
-            text="Use one-click actions to run your existing scripts.",
-            style="CardText.TLabel",
-        ).pack(anchor="w", pady=(2, 14))
+        # Sidebar title
+        tk.Label(left, text="Quick Actions", bg=self.sidebar, fg=self.text, font=("Segoe UI Semibold", 14)).pack(anchor="w", pady=(6, 10), padx=6)
 
-        ttk.Button(
-            left,
-            text="Start Attendance Camera",
-            style="Accent.TButton",
-            command=self.start_main_attendance,
-        ).pack(fill="x", pady=6)
+        # Nav-style vertical buttons
+        ttk.Button(left, text="Start Attendance", style="Nav.TButton", command=self.start_main_attendance).pack(fill="x", pady=6, padx=6)
+        ttk.Button(left, text="Train Model", style="Nav.TButton", command=self.run_training).pack(fill="x", pady=6, padx=6)
+        ttk.Button(left, text="Open Portal", style="Nav.TButton", command=self.open_portal).pack(fill="x", pady=6, padx=6)
+        ttk.Button(left, text="Student Table", style="Nav.TButton", command=self.open_student_attendance_ui).pack(fill="x", pady=6, padx=6)
+        ttk.Button(left, text="DB Health", style="Nav.TButton", command=self.run_db_check).pack(fill="x", pady=6, padx=6)
+        ttk.Button(left, text="Migrate DB", style="Nav.TButton", command=self.run_db_migrations).pack(fill="x", pady=6, padx=6)
 
-        ttk.Button(
-            left,
-            text="Train Model",
-            style="Ghost.TButton",
-            command=self.run_training,
-        ).pack(fill="x", pady=6)
+        ttk.Separator(left, orient="horizontal").pack(fill="x", pady=(14, 12))
 
-        ttk.Button(
-            left,
-            text="Open Portal (CLI)",
-            style="Ghost.TButton",
-            command=self.open_portal,
-        ).pack(fill="x", pady=6)
+        # Manual attendance marking
+        ttk.Label(left, text="Manual Attendance Marking", style="CardTitle.TLabel").pack(anchor="w")
+        att_frame = ttk.Frame(left, style="Card.TFrame", padding=8)
+        att_frame.pack(fill="x", pady=(8, 6))
 
-        ttk.Button(
-            left,
-            text="Open Student Attendance Table",
-            style="Ghost.TButton",
-            command=self.open_student_attendance_ui,
-        ).pack(fill="x", pady=6)
+        tk.Label(att_frame, text="Student", bg=self.panel, fg=self.subtext, font=("Segoe UI", 10)).grid(row=0, column=0, sticky="w")
+        self.att_student_cb = ttk.Combobox(att_frame, values=[], state="normal")
+        self.att_student_cb.grid(row=1, column=0, sticky="ew", pady=(4, 8))
+        self.att_student_cb.bind("<KeyRelease>", self._on_student_autocomplete)
+        self.att_student_cb.bind("<FocusIn>", self._on_student_autocomplete_focus)
 
-        ttk.Button(
-            left,
-            text="DB Health Check",
-            style="Ghost.TButton",
-            command=self.run_db_check,
-        ).pack(fill="x", pady=6)
+        tk.Label(att_frame, text="Date (YYYY-MM-DD)", bg=self.panel, fg=self.subtext, font=("Segoe UI", 10)).grid(row=2, column=0, sticky="w")
+        self.att_date_entry = tk.Entry(att_frame, bg="#071428", fg="#eaf8ff", relief="flat", font=("Segoe UI", 11))
+        self.att_date_entry.grid(row=3, column=0, sticky="ew", pady=(4, 8))
+        self.att_date_entry.insert(0, date.today().strftime("%Y-%m-%d"))
+        # open calendar popup on click
+        self.att_date_entry.bind("<Button-1>", lambda e: DatePicker(self, self.att_date_entry).show())
 
-        ttk.Button(
-            left,
-            text="Run DB Migrations",
-            style="Ghost.TButton",
-            command=self.run_db_migrations,
-        ).pack(fill="x", pady=6)
+        tk.Label(att_frame, text="Status", bg=self.panel, fg=self.subtext, font=("Segoe UI", 10)).grid(row=4, column=0, sticky="w")
+        self.att_status_cb = ttk.Combobox(att_frame, values=["Present", "Absent"], state="readonly")
+        self.att_status_cb.grid(row=5, column=0, sticky="ew", pady=(4, 0))
+        self.att_status_cb.set("Present")
+
+        ttk.Button(left, text="Mark Attendance", style="Accent.TButton", command=self.mark_attendance).pack(fill="x", pady=(0, 2))
+
+        att_frame.columnconfigure(0, weight=1)
 
         ttk.Label(right, text="Notes", style="CardTitle.TLabel").pack(anchor="w")
         notes = [
@@ -1145,34 +1366,79 @@ class SmartAttendanceUI:
         top = ttk.Frame(content, style="Base.TFrame")
         top.pack(fill="x")
 
+        actions_row = ttk.Frame(top, style="Base.TFrame")
+        actions_row.pack(fill="x")
+
         ttk.Button(
-            top,
+            actions_row,
             text="Export Attendance Report",
             style="Accent.TButton",
             command=self.export_report,
         ).pack(side="left")
 
         ttk.Button(
-            top,
+            actions_row,
             text="Open Excel File",
             style="Ghost.TButton",
             command=self.open_report_file,
         ).pack(side="left", padx=10)
 
         ttk.Button(
-            top,
+            actions_row,
             text="Refresh Recent Attendance",
             style="Ghost.TButton",
             command=self.refresh_recent_attendance,
         ).pack(side="left")
+
+        ttk.Button(
+            actions_row,
+            text="Edit Selected Record",
+            style="Accent.TButton",
+            command=self.edit_selected_record,
+        ).pack(side="left", padx=10)
+
+        # Filter controls sit on their own row so the action bar stays readable.
+        filter_frame = ttk.Frame(top, style="Base.TFrame")
+        filter_frame.pack(fill="x", pady=(10, 0))
+
+        tk.Label(filter_frame, text="Filter by Student", bg=self.bg, fg=self.subtext, font=("Segoe UI", 9)).grid(
+            row=0,
+            column=0,
+            columnspan=3,
+            sticky="w",
+        )
+        self.report_student_cb = ttk.Combobox(filter_frame, values=[], state="normal", width=30)
+        self.report_student_cb.grid(row=1, column=0, sticky="ew", padx=(0, 8), pady=(4, 0))
+        self.report_student_cb.bind("<KeyRelease>", self._on_student_autocomplete)
+        self.report_student_cb.bind("<FocusIn>", self._on_student_autocomplete_focus)
+        ttk.Button(
+            filter_frame,
+            text="View Student Attendance",
+            style="Ghost.TButton",
+            command=lambda: self.view_student_attendance_from_ui(),
+        ).grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=(4, 0))
+        ttk.Button(
+            filter_frame,
+            text="Show All",
+            style="Ghost.TButton",
+            command=self.refresh_recent_attendance,
+        ).grid(row=1, column=2, sticky="ew", pady=(4, 0))
+
+        filter_frame.columnconfigure(0, weight=2)
+        filter_frame.columnconfigure(1, weight=2)
+        filter_frame.columnconfigure(2, weight=1)
 
         table_card = ttk.Frame(content, style="Card.TFrame", padding=14)
         table_card.pack(fill="both", expand=True, pady=(14, 0))
 
         ttk.Label(table_card, text="Recent Attendance", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 10))
 
-        columns = ("student_id", "name", "date", "status")
+        columns = ("attendance_id", "student_id", "name", "date", "status")
         self.tree = ttk.Treeview(table_card, columns=columns, show="headings")
+        # hidden attendance id column
+        self.tree.heading("attendance_id", text="")
+        self.tree.column("attendance_id", width=0, stretch=False)
+
         self.tree.heading("student_id", text="Student ID")
         self.tree.heading("name", text="Name")
         self.tree.heading("date", text="Date")
@@ -1184,6 +1450,13 @@ class SmartAttendanceUI:
         self.tree.column("status", width=130, anchor="center")
 
         self.tree.pack(fill="both", expand=True)
+
+        # Secondary Edit / Delete attendance controls.
+        record_actions = ttk.Frame(content, style="Base.TFrame")
+        record_actions.pack(fill="x", pady=(8, 0))
+
+        ttk.Button(record_actions, text="Edit Selected Record", style="Ghost.TButton", command=self.edit_selected_record).pack(side="left")
+        ttk.Button(record_actions, text="Delete Selected Record", style="Ghost.TButton", command=self.delete_selected_record).pack(side="left", padx=8)
 
     def _labeled_entry(self, parent, label_text, row):
         label = tk.Label(
@@ -1243,7 +1516,29 @@ class SmartAttendanceUI:
         self.name_entry.delete(0, tk.END)
         self.roll_entry.delete(0, tk.END)
         self.birth_entry.delete(0, tk.END)
+        # cancel edit mode and clear fields
+        self.set_edit_mode(None)
         self.set_status("Registration fields cleared")
+
+    def set_edit_mode(self, student_id):
+        """Toggle edit mode UI. If student_id is None -> create mode."""
+        if student_id:
+            self.editing_student_id = int(student_id)
+            self.register_button.config(text="Save Changes")
+            self.edit_banner.config(text=f"Editing Student ID: {student_id}")
+            self.edit_banner.grid()
+            self.cancel_edit_button.grid()
+        else:
+            self.editing_student_id = None
+            self.register_button.config(text="Register + Capture + Train")
+            try:
+                self.edit_banner.grid_remove()
+            except Exception:
+                pass
+            try:
+                self.cancel_edit_button.grid_remove()
+            except Exception:
+                pass
 
     def _build_teacher_session_text(self):
         full_name = self.teacher_info.get("full_name") or self.teacher_info.get("username") or "Teacher"
@@ -1421,7 +1716,6 @@ class SmartAttendanceUI:
     def start_registration_flow(self):
         if self.busy_var.get():
             return
-
         name = self.name_entry.get().strip()
         roll_no = self.roll_entry.get().strip()
         birthdate = self.birth_entry.get().strip()
@@ -1430,6 +1724,26 @@ class SmartAttendanceUI:
             messagebox.showerror("Missing Data", "Please fill Name, Roll Number, and Birthdate.")
             return
 
+        if self.editing_student_id:
+            confirm = messagebox.askyesno(
+                "Update Student",
+                f"Save changes to student ID {self.editing_student_id}?",
+            )
+            if not confirm:
+                return
+
+            self.with_busy_state(True)
+            self.set_status("Updating student record...")
+
+            thread = threading.Thread(
+                target=self._update_student_worker,
+                args=(self.editing_student_id, name, roll_no, birthdate),
+                daemon=True,
+            )
+            thread.start()
+            return
+
+        # New registration flow
         self.with_busy_state(True)
         self.set_status("Creating student record and opening camera...")
 
@@ -1490,6 +1804,289 @@ class SmartAttendanceUI:
                 db.close()
             self.root.after(0, lambda: self.with_busy_state(False))
             self.root.after(0, self.refresh_recent_attendance)
+
+    def refresh_students_list(self):
+        if not hasattr(self, "student_tree"):
+            return
+
+        for item in self.student_tree.get_children():
+            self.student_tree.delete(item)
+
+        db = None
+        cursor = None
+        try:
+            db, cursor = self.get_db_connection()
+            cursor.execute(
+                "SELECT student_id, name, roll_no, birthdate FROM students ORDER BY student_id DESC"
+            )
+            rows = cursor.fetchall()
+
+            for row in rows:
+                sid, name, roll, bd = row
+                bd_text = bd.strftime("%Y-%m-%d") if isinstance(bd, datetime) else (bd or "-")
+                self.student_tree.insert("", tk.END, values=(sid, name, roll, bd_text))
+
+            self.set_status(f"Loaded {len(rows)} students")
+
+        except Exception as exc:
+            self.set_status("Could not load students list")
+            messagebox.showerror("Students Load Error", str(exc))
+
+        finally:
+            if cursor:
+                cursor.close()
+            if db:
+                db.close()
+        # update comboboxes if present
+        try:
+            items = self.get_students_for_combobox()
+            self.student_autocomplete_items = items
+            values = [i[1] for i in items]
+            if hasattr(self, 'att_student_cb') and self.att_student_cb:
+                self.att_student_cb['values'] = values
+            if hasattr(self, 'report_student_cb') and self.report_student_cb:
+                self.report_student_cb['values'] = values
+        except Exception:
+            pass
+
+    def get_students_for_combobox(self):
+        """Return list of tuples (id, display) and set combobox values."""
+        db = None
+        cursor = None
+        try:
+            db, cursor = self.get_db_connection()
+            cursor.execute("SELECT student_id, name, roll_no FROM students ORDER BY name ASC")
+            rows = cursor.fetchall()
+            items = [(r[0], f"{r[1]} ({r[2]})") for r in rows]
+            return items
+        except Exception:
+            return []
+        finally:
+            if cursor:
+                cursor.close()
+            if db:
+                db.close()
+
+    def _student_display_matches(self, query, display_text):
+        normalized_query = query.strip().lower()
+        if not normalized_query:
+            return True
+
+        display_lower = display_text.lower()
+        name_part = display_text.split(" (")[0].lower()
+        roll_part = display_text.rsplit("(", 1)[-1].rstrip(")").lower() if "(" in display_text else ""
+
+        return (
+            normalized_query in display_lower
+            or normalized_query in name_part
+            or display_lower.startswith(normalized_query)
+            or (roll_part and normalized_query in roll_part)
+        )
+
+    def _refresh_student_autocomplete_values(self, combobox, query_text):
+        if not combobox:
+            return
+
+        items = self.student_autocomplete_items or self.get_students_for_combobox()
+        filtered = [item[1] for item in items if self._student_display_matches(query_text, item[1])]
+
+        if filtered:
+            combobox["values"] = filtered
+        else:
+            combobox["values"] = [item[1] for item in items]
+
+    def _on_student_autocomplete_focus(self, event):
+        widget = event.widget
+        if widget is self.att_student_cb or widget is self.report_student_cb:
+            self._refresh_student_autocomplete_values(widget, widget.get())
+
+    def _on_student_autocomplete(self, event):
+        widget = event.widget
+        if widget is not self.att_student_cb and widget is not self.report_student_cb:
+            return
+
+        if event.keysym in ("Up", "Down", "Left", "Right", "Return", "Escape", "Tab"):
+            return
+
+        current_text = widget.get()
+        self._refresh_student_autocomplete_values(widget, current_text)
+
+        if current_text.strip():
+            try:
+                widget.event_generate("<Down>")
+            except Exception:
+                pass
+
+    def _resolve_student_selection(self, selected_text, items):
+        normalized = selected_text.strip().lower()
+        if not normalized:
+            return None
+
+        exact_matches = [item for item in items if item[1].lower() == normalized]
+        if exact_matches:
+            return exact_matches[0][0]
+
+        name_matches = [item for item in items if item[1].split(" (")[0].lower() == normalized]
+        if len(name_matches) == 1:
+            return name_matches[0][0]
+
+        prefix_matches = [item for item in items if item[1].lower().startswith(normalized)]
+        if len(prefix_matches) == 1:
+            return prefix_matches[0][0]
+
+        roll_matches = [item for item in items if item[1].lower().endswith(f"({normalized})")]
+        if len(roll_matches) == 1:
+            return roll_matches[0][0]
+
+        return None
+
+    def mark_attendance(self):
+        try:
+            # ensure combobox is populated
+            items = self.get_students_for_combobox()
+            if not self.att_student_cb['values']:
+                self.att_student_cb['values'] = [i[1] for i in items]
+
+            student_display = self.att_student_cb.get()
+            if not student_display:
+                messagebox.showerror("Missing Data", "Select a student to mark attendance.")
+                return
+
+            student_id = self._resolve_student_selection(student_display, items)
+            if student_id is None:
+                messagebox.showerror("Selection Error", "Type or select the student name from the list.")
+                return
+
+            date_text = self.att_date_entry.get().strip()
+            status = self.att_status_cb.get().strip()
+            if not date_text or not status:
+                messagebox.showerror("Missing Data", "Date and status are required.")
+                return
+
+            db, cursor = self.get_db_connection()
+            cursor.execute(
+                """
+                INSERT INTO attendance (student_id, date, status)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE status=%s
+                """,
+                (student_id, date_text, status, status),
+            )
+            db.commit()
+            cursor.close()
+            db.close()
+
+            self.set_status(f"Marked {status} for student ID {student_id} on {date_text}")
+            messagebox.showinfo("Done", "Attendance marked successfully.")
+            self.refresh_recent_attendance()
+
+        except Exception as exc:
+            messagebox.showerror("Attendance Error", str(exc))
+
+    def load_selected_student(self):
+        if not hasattr(self, "student_tree"):
+            return
+
+        selected = self.student_tree.selection()
+        if not selected:
+            messagebox.showwarning("Select Student", "Please select a student from the table.")
+            return
+
+        values = self.student_tree.item(selected[0], "values")
+        student_id = values[0]
+        name = values[1]
+        roll = values[2]
+        birth = values[3]
+
+        self.name_entry.delete(0, tk.END)
+        self.roll_entry.delete(0, tk.END)
+        self.birth_entry.delete(0, tk.END)
+
+        self.name_entry.insert(0, name)
+        self.roll_entry.insert(0, roll)
+        self.birth_entry.insert(0, birth)
+
+        self.set_edit_mode(student_id)
+        self.set_status(f"Loaded student for edit: {student_id}")
+
+    def delete_selected_student(self):
+        if not hasattr(self, "student_tree"):
+            return
+
+        selected = self.student_tree.selection()
+        if not selected:
+            messagebox.showwarning("Select Student", "Please select a student from the table.")
+            return
+
+        values = self.student_tree.item(selected[0], "values")
+        student_id = values[0]
+        name = values[1]
+
+        confirm = messagebox.askyesno("Confirm Delete", f"Delete student '{name}' (ID: {student_id})?")
+        if not confirm:
+            return
+
+        db = None
+        cursor = None
+        try:
+            db, cursor = self.get_db_connection()
+            cursor.execute("DELETE FROM students WHERE student_id=%s", (student_id,))
+            db.commit()
+
+            # Remove dataset images for the student
+            dataset_dir = os.path.join(self.base_dir, "dataset")
+            if os.path.isdir(dataset_dir):
+                for fname in os.listdir(dataset_dir):
+                    if fname.startswith(f"user.{student_id}."):
+                        try:
+                            os.remove(os.path.join(dataset_dir, fname))
+                        except Exception:
+                            pass
+
+            self.set_status(f"Deleted student: {name} (ID: {student_id})")
+            self.refresh_students_list()
+            self.refresh_recent_attendance()
+
+        except Exception as exc:
+            messagebox.showerror("Delete Error", str(exc))
+
+        finally:
+            if cursor:
+                cursor.close()
+            if db:
+                db.close()
+
+    def _update_student_worker(self, student_id, name, roll_no, birthdate):
+        db = None
+        cursor = None
+        try:
+            db, cursor = self.get_db_connection()
+            cursor.execute(
+                "UPDATE students SET name=%s, roll_no=%s, birthdate=%s WHERE student_id=%s",
+                (name, roll_no, birthdate, student_id),
+            )
+            db.commit()
+
+            self.root.after(0, lambda: messagebox.showinfo("Updated", f"Student (ID: {student_id}) updated."))
+            self.root.after(0, lambda: self.set_status(f"Updated student: {student_id}"))
+            self.root.after(0, lambda: self.clear_register_fields())
+            self.root.after(0, lambda: self.refresh_students_list())
+
+        except mysql.connector.Error as exc:
+            self.root.after(0, lambda: messagebox.showerror("Database Error", str(exc)))
+            self.root.after(0, lambda: self.set_status("Update failed due to DB error"))
+
+        except Exception as exc:
+            self.root.after(0, lambda: messagebox.showerror("Error", str(exc)))
+            self.root.after(0, lambda: self.set_status("Student update failed"))
+
+        finally:
+            if cursor:
+                cursor.close()
+            if db:
+                db.close()
+            self.root.after(0, lambda: self.with_busy_state(False))
+            self.editing_student_id = None
 
     def _capture_faces_on_ui_thread(self, student_id):
         capture_complete = threading.Event()
@@ -1684,7 +2281,7 @@ class SmartAttendanceUI:
             db, cursor = self.get_db_connection()
             cursor.execute(
                 """
-                SELECT students.student_id, students.name, attendance.date, attendance.status
+                SELECT attendance.attendance_id, students.student_id, students.name, attendance.date, attendance.status
                 FROM attendance
                 JOIN students ON students.student_id = attendance.student_id
                 ORDER BY attendance.date DESC, attendance.attendance_id DESC
@@ -1696,6 +2293,7 @@ class SmartAttendanceUI:
             db.close()
 
             for row in rows:
+                # row = (attendance_id, student_id, name, date, status)
                 self.tree.insert("", tk.END, values=row)
 
             self.set_status(f"Loaded {len(rows)} attendance records")
@@ -1705,6 +2303,142 @@ class SmartAttendanceUI:
             self.set_status("Could not load attendance records")
             messagebox.showerror("Load Error", str(exc))
 
+    def view_student_attendance_from_ui(self):
+        sel = self.report_student_cb.get()
+        if not sel:
+            messagebox.showwarning("Select Student", "Please select a student to filter.")
+            return
+
+        items = self.get_students_for_combobox()
+        mapping = {i[1]: i[0] for i in items}
+        sid = mapping.get(sel)
+        if sid is None:
+            messagebox.showerror("Selection Error", "Could not resolve selected student.")
+            return
+
+        self.view_student_attendance(sid)
+
+    def view_student_attendance(self, student_id):
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        try:
+            db, cursor = self.get_db_connection()
+            cursor.execute(
+                """
+                SELECT attendance.attendance_id, students.student_id, students.name, attendance.date, attendance.status
+                FROM attendance
+                JOIN students ON students.student_id = attendance.student_id
+                WHERE students.student_id = %s
+                ORDER BY attendance.date DESC, attendance.attendance_id DESC
+                """,
+                (student_id,)
+            )
+            rows = cursor.fetchall()
+            cursor.close()
+            db.close()
+
+            for row in rows:
+                self.tree.insert("", tk.END, values=row)
+
+            self.set_status(f"Loaded {len(rows)} attendance records for student {student_id}")
+
+        except Exception as exc:
+            messagebox.showerror("Load Error", str(exc))
+
+    def edit_selected_record(self):
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showwarning("Select Record", "Please select an attendance record to edit.")
+            return
+
+        values = self.tree.item(selected[0], "values")
+        attendance_id = values[0]
+        current_status = values[4]
+
+        new_status = self._ask_attendance_status(current_status)
+        if new_status is None:
+            return
+
+        try:
+            db, cursor = self.get_db_connection()
+            cursor.execute("UPDATE attendance SET status=%s WHERE attendance_id=%s", (new_status, attendance_id))
+            db.commit()
+            cursor.close()
+            db.close()
+            self.set_status(f"Updated attendance {attendance_id} -> {new_status}")
+            self.refresh_recent_attendance()
+        except Exception as exc:
+            messagebox.showerror("Update Error", str(exc))
+
+    def _ask_attendance_status(self, initial_status):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Edit Attendance")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        dialog.configure(bg=self.bg)
+
+        container = ttk.Frame(dialog, padding=16, style="Base.TFrame")
+        container.pack(fill="both", expand=True)
+
+        ttk.Label(container, text="Select attendance status", style="Subtitle.TLabel").pack(anchor="w")
+
+        status_var = tk.StringVar(value=initial_status if initial_status in ("Present", "Absent") else "Present")
+        status_cb = ttk.Combobox(container, values=["Present", "Absent"], textvariable=status_var, state="readonly", width=24)
+        status_cb.pack(fill="x", pady=(8, 14))
+        status_cb.focus_set()
+
+        result = {"value": None}
+
+        buttons = ttk.Frame(container, style="Base.TFrame")
+        buttons.pack(fill="x")
+
+        def submit():
+            result["value"] = status_var.get().strip()
+            dialog.destroy()
+
+        def cancel():
+            dialog.destroy()
+
+        ttk.Button(buttons, text="OK", style="Accent.TButton", command=submit).pack(side="left")
+        ttk.Button(buttons, text="Cancel", style="Ghost.TButton", command=cancel).pack(side="left", padx=8)
+
+        dialog.update_idletasks()
+        width = dialog.winfo_reqwidth()
+        height = dialog.winfo_reqheight()
+        x = self.root.winfo_rootx() + (self.root.winfo_width() - width) // 2
+        y = self.root.winfo_rooty() + (self.root.winfo_height() - height) // 2
+        dialog.geometry(f"+{max(0, x)}+{max(0, y)}")
+        dialog.bind("<Escape>", lambda _event: cancel())
+        dialog.bind("<Return>", lambda _event: submit())
+        self.root.wait_window(dialog)
+        return result["value"]
+
+    def delete_selected_record(self):
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showwarning("Select Record", "Please select an attendance record to delete.")
+            return
+
+        values = self.tree.item(selected[0], "values")
+        attendance_id = values[0]
+
+        confirm = messagebox.askyesno("Confirm Delete", f"Delete attendance record ID {attendance_id}? This action cannot be undone.")
+        if not confirm:
+            return
+
+        try:
+            db, cursor = self.get_db_connection()
+            cursor.execute("DELETE FROM attendance WHERE attendance_id=%s", (attendance_id,))
+            db.commit()
+            cursor.close()
+            db.close()
+            self.set_status(f"Deleted attendance record {attendance_id}")
+            self.refresh_recent_attendance()
+        except Exception as exc:
+            messagebox.showerror("Delete Error", str(exc))
+
     def refresh_dashboard_metrics(self):
         db = None
         cursor = None
@@ -1712,14 +2446,15 @@ class SmartAttendanceUI:
             db, cursor = self.get_db_connection()
 
             cursor.execute("SELECT COUNT(*) FROM students")
-            total_students = cursor.fetchone()[0]
+            total_students = float(cursor.fetchone()[0])
 
             cursor.execute("SELECT COUNT(*) FROM attendance WHERE date=%s", (date.today(),))
-            present_today = cursor.fetchone()[0]
+            present_today = float(cursor.fetchone()[0])
 
             cursor.execute("SELECT COUNT(*), SUM(status='Present') FROM attendance")
             total_rows, present_rows = cursor.fetchone()
-            present_rows = present_rows or 0
+            present_rows = float(present_rows or 0)
+            total_rows = float(total_rows or 0)
             if total_rows:
                 overall_rate = (present_rows / total_rows) * 100
                 overall_rate_text = f"{overall_rate:.1f}%"
@@ -1736,16 +2471,16 @@ class SmartAttendanceUI:
                 (current_start, today),
             )
             current_total, current_present = cursor.fetchone()
-            current_total = current_total or 0
-            current_present = current_present or 0
+            current_total = float(current_total or 0)
+            current_present = float(current_present or 0)
 
             cursor.execute(
                 "SELECT COUNT(*), SUM(status='Present') FROM attendance WHERE date BETWEEN %s AND %s",
                 (prev_start, prev_end),
             )
             prev_total, prev_present = cursor.fetchone()
-            prev_total = prev_total or 0
-            prev_present = prev_present or 0
+            prev_total = float(prev_total or 0)
+            prev_present = float(prev_present or 0)
 
             current_rate = ((current_present / current_total) * 100) if current_total else 0.0
             prev_rate = ((prev_present / prev_total) * 100) if prev_total else 0.0
@@ -1765,7 +2500,10 @@ class SmartAttendanceUI:
             self.attendance_rate_var.set(overall_rate_text)
             self.weekly_trend_var.set(trend_text)
 
-        except Exception:
+        except Exception as e:
+            print(f"Error refreshing dashboard metrics: {e}")
+            import traceback
+            traceback.print_exc()
             self.students_count_var.set("--")
             self.today_present_var.set("--")
             self.last_export_var.set("Unavailable")

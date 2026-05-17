@@ -3,8 +3,10 @@ import os
 import numpy as np
 from PIL import Image
 
-# Path of dataset
-dataset_path = "dataset"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATASET_PATH = os.path.join(BASE_DIR, "dataset")
+TRAINER_DIR = os.path.join(BASE_DIR, "trainer")
+TRAINER_PATH = os.path.join(TRAINER_DIR, "trainer.yml")
 
 # Create recognizer
 recognizer = cv2.face.LBPHFaceRecognizer_create()
@@ -16,6 +18,10 @@ detector = cv2.CascadeClassifier(
 
 
 def getImagesAndLabels(path):
+
+    if not os.path.isdir(path):
+        os.makedirs(path, exist_ok=True)
+        return [], []
 
     imagePaths = [os.path.join(path, f) for f in os.listdir(path)]
 
@@ -50,21 +56,20 @@ def getImagesAndLabels(path):
 
 print("\nTraining faces. Please wait...")
 
-faces, ids = getImagesAndLabels(dataset_path)
+faces, ids = getImagesAndLabels(DATASET_PATH)
 
 if len(faces) == 0:
-    print("No training data found!")
+    print(f"No training data found in {DATASET_PATH}. Register students first, then run training again.")
     exit()
 
 recognizer.train(faces, np.array(ids))
 
 # Create trainer folder if not exists
-if not os.path.exists("trainer"):
-    os.makedirs("trainer")
+os.makedirs(TRAINER_DIR, exist_ok=True)
 
 # Save trained model
-recognizer.write("trainer/trainer.yml")
+recognizer.write(TRAINER_PATH)
 
 print("Training completed successfully!")
 print("Total faces trained:", len(set(ids)))
-print("Model saved at: trainer/trainer.yml")
+print(f"Model saved at: {TRAINER_PATH}")

@@ -6,6 +6,15 @@ import sys
 from db_schema import ensure_schema
 
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TRAINER_PATH = os.path.join(BASE_DIR, "trainer", "trainer.yml")
+
+
+def fail(message, exit_code=1):
+    print(message)
+    sys.exit(exit_code)
+
+
 def open_camera(index=0):
     backends = [None]
     if sys.platform == "darwin":
@@ -35,7 +44,18 @@ ensure_schema(db, cursor)
 
 # LOAD TRAINED MODEL
 recognizer = cv2.face.LBPHFaceRecognizer_create()
-recognizer.read("trainer/trainer.yml")
+
+if not os.path.exists(TRAINER_PATH) or os.path.getsize(TRAINER_PATH) == 0:
+    fail(
+        "Trained model not found or empty. Run train_model.py after registering students to generate trainer/trainer.yml."
+    )
+
+try:
+    recognizer.read(TRAINER_PATH)
+except cv2.error as exc:
+    fail(
+        "Unable to load trainer/trainer.yml. Re-run train_model.py to regenerate the model file."
+    )
 
 face_cascade = cv2.CascadeClassifier(
     cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
@@ -44,7 +64,7 @@ face_cascade = cv2.CascadeClassifier(
 # CAMERA
 cam = open_camera(0)
 if cam is None:
-    raise RuntimeError(
+    fail(
         "Unable to open the camera. On macOS, allow camera access for Terminal/Python from System Settings."
     )
 
