@@ -131,6 +131,7 @@ class DatePicker:
             except Exception:
                 self.win = None
 
+        print(f"DatePicker.show() year={self.year} month={self.month}")
         self.win = tk.Toplevel(self.parent.root if hasattr(self.parent, 'root') else self.parent)
         self.win.wm_overrideredirect(True)
         self.win.attributes('-topmost', True)
@@ -145,33 +146,93 @@ class DatePicker:
 
         self.win.geometry(f'+{x}+{y}')
 
-        frame = tk.Frame(self.win, bd=1, relief='solid')
+        # match the app panel color when available so popup fits theme
+        panel_bg = getattr(self.parent, 'panel', None) or self.win.cget('bg')
+        # store for use in _draw_calendar
+        self._panel_bg = panel_bg
+        frame = tk.Frame(self.win, bd=1, relief='solid', bg=panel_bg)
         frame.pack()
 
-        header = tk.Frame(frame)
+        header = tk.Frame(frame, bg=panel_bg)
         header.pack(fill='x')
         prev_btn = tk.Button(header, text='<', width=2, command=self._prev_month)
         prev_btn.pack(side='left')
-        self.title_lbl = tk.Label(header, text='', width=18)
+        self.title_lbl = tk.Label(header, text='', width=18, bg=panel_bg, fg=getattr(self.parent, 'text', '#000000'), font=("Segoe UI", 9, 'bold'))
         self.title_lbl.pack(side='left', padx=6)
+        # clicking the title opens year selection view
+        try:
+            self.title_lbl.bind('<Button-1>', lambda e: self._show_year_view())
+        except Exception:
+            pass
+        # year selector (spinbox) to allow directly choosing year
+        try:
+            year_fg = getattr(self.parent, 'text', '#000000')
+            year_bg = panel_bg
+            self._year_spin = tk.Spinbox(header, from_=1900, to=2100, width=6, font=("Segoe UI", 9), bg=year_bg, fg=year_fg, command=self._on_year_change)
+            self._year_spin.pack(side='left', padx=(4, 0))
+            # ensure pressing Enter also applies change
+            self._year_spin.bind('<Return>', lambda e: self._on_year_change())
+            self._year_spin.bind('<FocusOut>', lambda e: self._on_year_change())
+        except Exception:
+            self._year_spin = None
         next_btn = tk.Button(header, text='>', width=2, command=self._next_month)
         next_btn.pack(side='left')
 
-        self.days_frame = tk.Frame(frame)
+        # days container matches panel background
+        self.days_frame = tk.Frame(frame, bg=panel_bg)
         self.days_frame.pack()
 
         self._draw_calendar()
 
-        # close when clicking outside
+        # close when clicking outside or when focus is lost
         self.win.bind('<FocusOut>', lambda e: self.destroy())
         self.win.focus_force()
+
+        # use grab_set so popup receives clicks even when user clicks outside
+        try:
+            self.win.grab_set()
+
+            def _on_click_anywhere(event):
+                try:
+                    if not self.win:
+                        return
+                    rx, ry = event.x_root, event.y_root
+                    wx = self.win.winfo_rootx()
+                    wy = self.win.winfo_rooty()
+                    ww = self.win.winfo_width()
+                    wh = self.win.winfo_height()
+                    if not (wx <= rx <= wx + ww and wy <= ry <= wy + wh):
+                        # click outside -> close popup
+                        self.destroy()
+                except Exception:
+                    pass
+
+            # bind to the popup so grabbed clicks are delivered here
+            self.win.bind('<Button-1>', _on_click_anywhere, add='+')
+            self._popup_click_handler_bound = True
+        except Exception:
+            self._popup_click_handler_bound = False
 
     def destroy(self):
         try:
             if self.win:
-                self.win.destroy()
+                try:
+                    # release grab so other windows receive events
+                    try:
+                        self.win.grab_release()
+                    except Exception:
+                        pass
+                    # unbind popup-local click handler
+                    if getattr(self, '_popup_click_handler_bound', False):
+                        try:
+                            self.win.unbind('<Button-1>')
+                        except Exception:
+                            pass
+                finally:
+                    self.win.destroy()
         finally:
             self.win = None
+            self._popup_click_handler_bound = False
 
     def _prev_month(self):
         self.month -= 1
@@ -179,6 +240,7 @@ class DatePicker:
             self.month = 12
             self.year -= 1
         self._draw_calendar()
+        self._update_year_widget()
 
     def _next_month(self):
         self.month += 1
@@ -186,6 +248,27 @@ class DatePicker:
             self.month = 1
             self.year += 1
         self._draw_calendar()
+        self._update_year_widget()
+
+    def _on_year_change(self):
+        try:
+            if not getattr(self, '_year_spin', None):
+                return
+            val = int(self._year_spin.get())
+            if val != self.year:
+                self.year = val
+                self._draw_calendar()
+        except Exception:
+            return
+
+    def _update_year_widget(self):
+        try:
+            if getattr(self, '_year_spin', None):
+                # set spinbox value without triggering command
+                self._year_spin.delete(0, 'end')
+                self._year_spin.insert(0, str(self.year))
+        except Exception:
+            pass
 
     def _draw_calendar(self):
         for w in self.days_frame.winfo_children():
@@ -194,28 +277,89 @@ class DatePicker:
         self.title_lbl.config(text=f"{calendar.month_name[self.month]} {self.year}")
 
         wkdays = ['Mo','Tu','We','Th','Fr','Sa','Su']
-        header = tk.Frame(self.days_frame)
-        header.pack()
+        panel_bg = getattr(self, '_panel_bg', self.days_frame.cget('bg'))
+        header = tk.Frame(self.days_frame, bg=panel_bg)
+        # use grid for header so all children of self.days_frame use grid (avoid pack/grid mix)
+        header.grid(row=0, column=0, columnspan=7, sticky='w')
+        wk_fg = getattr(self.parent, 'subtext', '#000000')
         for i, d in enumerate(wkdays):
-            tk.Label(header, text=d, width=3, font=("Segoe UI", 9, 'bold')).grid(row=0, column=i)
+            tk.Label(header, text=d, width=3, font=("Segoe UI", 9, 'bold'), bg=panel_bg, fg=wk_fg).grid(row=0, column=i)
 
         m = calendar.monthcalendar(self.year, self.month)
         for r, week in enumerate(m):
             for c, day in enumerate(week):
                 if day == 0:
-                    lbl = tk.Label(self.days_frame, text='', width=3)
+                    lbl = tk.Label(self.days_frame, text='', width=3, bg=panel_bg)
                     lbl.grid(row=r+1, column=c, padx=2, pady=2)
                 else:
-                    btn = tk.Button(self.days_frame, text=str(day), width=3, command=lambda d=day: self._select(d))
+                    # ensure day numbers are visible on dark themed panels
+                    day_bg = getattr(self.parent, 'panel', '#ffffff')
+                    day_fg = getattr(self.parent, 'text', '#000000')
+                    btn = tk.Button(self.days_frame, text=str(day), width=3, command=lambda d=day: self._select(d),
+                                    bg='#ffffff', fg='#000000', activebackground='#cfefff', activeforeground='#02101f', relief='flat')
                     btn.grid(row=r+1, column=c, padx=2, pady=2)
+
+    def _show_year_view(self, start_year=None):
+        # show a grid of clickable years in the days_frame
+        for w in self.days_frame.winfo_children():
+            w.destroy()
+
+        if start_year is None:
+            # align to decade-like block of 12 years
+            block = (self.year // 12) * 12
+            start_year = block
+        self._years_start = start_year
+
+        header = tk.Frame(self.days_frame, bg=getattr(self, '_panel_bg', self.days_frame.cget('bg')))
+        header.grid(row=0, column=0, columnspan=4, sticky='w')
+        prev_btn = tk.Button(header, text='<', width=2, command=self._prev_years)
+        prev_btn.pack(side='left')
+        title = tk.Label(header, text=f"Years {self._years_start} - {self._years_start+11}", bg=getattr(self, '_panel_bg', '#fff'))
+        title.pack(side='left', padx=6)
+        next_btn = tk.Button(header, text='>', width=2, command=self._next_years)
+        next_btn.pack(side='left')
+
+        # draw years in 4 columns x 3 rows (12 years)
+        y = self._years_start
+        for r in range(3):
+            for c in range(4):
+                year_btn = tk.Button(self.days_frame, text=str(y), width=6, command=lambda yy=y: self._on_select_year(yy), bg='#ffffff', fg='#000000')
+                year_btn.grid(row=r+1, column=c, padx=4, pady=4)
+                y += 1
+
+    def _prev_years(self):
+        try:
+            self._show_year_view(self._years_start - 12)
+        except Exception:
+            return
+
+    def _next_years(self):
+        try:
+            self._show_year_view(self._years_start + 12)
+        except Exception:
+            return
+
+    def _on_select_year(self, year):
+        try:
+            self.year = year
+            self._update_year_widget()
+            self._draw_calendar()
+        except Exception:
+            pass
 
     def _select(self, day):
         dt = datetime(self.year, self.month, day).strftime('%Y-%m-%d')
+        print(f"DatePicker._select() -> {dt}")
         try:
             self.entry.delete(0, tk.END)
             self.entry.insert(0, dt)
-        except Exception:
-            pass
+            # notify via virtual event for callers
+            try:
+                self.entry.event_generate('<<DatePicked>>')
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"DatePicker._select() error: {e}")
         self.destroy()
 
 
@@ -790,6 +934,7 @@ class SmartAttendanceUI:
         self.teacher_session_var = tk.StringVar(value=self._build_teacher_session_text())
         self.editing_student_id = None
         self.student_autocomplete_items = []
+        self._date_picker = None
 
         self._configure_style()
         self._build_layout()
@@ -927,6 +1072,22 @@ class SmartAttendanceUI:
             foreground="#eaf8ff",
             font=("Segoe UI Semibold", 10),
         )
+
+    def _get_date_picker(self):
+        """Return a single DatePicker instance for the attendance date entry.
+
+        Reuse the same DatePicker to avoid opening duplicate popup windows
+        when the entry is clicked multiple times.
+        """
+        try:
+            # If an instance exists and is bound to the same entry, reuse it
+            if self._date_picker is not None and getattr(self._date_picker, 'entry', None) is self.att_date_entry:
+                return self._date_picker
+        except Exception:
+            pass
+
+        self._date_picker = DatePicker(self, self.att_date_entry)
+        return self._date_picker
 
     def _build_layout(self):
         outer = ttk.Frame(self.root, style="Base.TFrame", padding=20)
@@ -1271,8 +1432,8 @@ class SmartAttendanceUI:
         self.att_date_entry = tk.Entry(att_frame, bg="#071428", fg="#eaf8ff", relief="flat", font=("Segoe UI", 11))
         self.att_date_entry.grid(row=3, column=0, sticky="ew", pady=(4, 8))
         self.att_date_entry.insert(0, date.today().strftime("%Y-%m-%d"))
-        # open calendar popup on click
-        self.att_date_entry.bind("<Button-1>", lambda e: DatePicker(self, self.att_date_entry).show())
+        # open calendar popup on click (reuse single DatePicker instance)
+        self.att_date_entry.bind("<Button-1>", lambda e: self._get_date_picker().show())
 
         tk.Label(att_frame, text="Status", bg=self.panel, fg=self.subtext, font=("Segoe UI", 10)).grid(row=4, column=0, sticky="w")
         self.att_status_cb = ttk.Combobox(att_frame, values=["Present", "Absent"], state="readonly")
@@ -1307,6 +1468,12 @@ class SmartAttendanceUI:
         self.teacher_name_entry = self._packed_labeled_entry(right, "Teacher Full Name")
         self.teacher_password_entry = self._packed_labeled_entry(right, "Teacher Password")
         self.teacher_password_entry.config(show="*")
+
+        # pressing Enter in username should move focus to password
+        try:
+            self.teacher_username_entry.bind('<Return>', lambda e: self.teacher_password_entry.focus_set())
+        except Exception:
+            pass
 
         self.teacher_username_entry.insert(0, str(self.teacher_info.get("username", "admin")))
         self.teacher_name_entry.insert(0, str(self.teacher_info.get("full_name", "Administrator")))
