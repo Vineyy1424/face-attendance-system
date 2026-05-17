@@ -153,30 +153,7 @@ class DatePicker:
         frame = tk.Frame(self.win, bd=1, relief='solid', bg=panel_bg)
         frame.pack()
 
-        header = tk.Frame(frame, bg=panel_bg)
-        header.pack(fill='x')
-        prev_btn = tk.Button(header, text='<', width=2, command=self._prev_month)
-        prev_btn.pack(side='left')
-        self.title_lbl = tk.Label(header, text='', width=18, bg=panel_bg, fg=getattr(self.parent, 'text', '#000000'), font=("Segoe UI", 9, 'bold'))
-        self.title_lbl.pack(side='left', padx=6)
-        # clicking the title opens year selection view
-        try:
-            self.title_lbl.bind('<Button-1>', lambda e: self._show_year_view())
-        except Exception:
-            pass
-        # year selector (spinbox) to allow directly choosing year
-        try:
-            year_fg = getattr(self.parent, 'text', '#000000')
-            year_bg = panel_bg
-            self._year_spin = tk.Spinbox(header, from_=1900, to=2100, width=6, font=("Segoe UI", 9), bg=year_bg, fg=year_fg, command=self._on_year_change)
-            self._year_spin.pack(side='left', padx=(4, 0))
-            # ensure pressing Enter also applies change
-            self._year_spin.bind('<Return>', lambda e: self._on_year_change())
-            self._year_spin.bind('<FocusOut>', lambda e: self._on_year_change())
-        except Exception:
-            self._year_spin = None
-        next_btn = tk.Button(header, text='>', width=2, command=self._next_month)
-        next_btn.pack(side='left')
+        # header controls (prev, month title, year spin, next) are created in _draw_calendar
 
         # days container matches panel background
         self.days_frame = tk.Frame(frame, bg=panel_bg)
@@ -273,31 +250,51 @@ class DatePicker:
     def _draw_calendar(self):
         for w in self.days_frame.winfo_children():
             w.destroy()
+        panel_bg = getattr(self, '_panel_bg', self.days_frame.cget('bg'))
 
-        self.title_lbl.config(text=f"{calendar.month_name[self.month]} {self.year}")
+        # header controls aligned to the same 7 columns as weekdays/days
+        prev_btn = tk.Button(self.days_frame, text='<', width=2, command=self._prev_month)
+        prev_btn.grid(row=0, column=0, padx=2, pady=2)
+
+        # month title spans columns 1-4
+        self.title_lbl = tk.Label(self.days_frame, text=f"{calendar.month_name[self.month]}", bg=panel_bg, fg=getattr(self.parent, 'text', '#000000'), font=("Segoe UI", 9, 'bold'))
+        self.title_lbl.grid(row=0, column=1, columnspan=4)
+        try:
+            self.title_lbl.bind('<Button-1>', lambda e: self._show_year_view())
+        except Exception:
+            pass
+
+        # year widget at column 5
+        try:
+            year_fg = getattr(self.parent, 'text', '#000000')
+            year_bg = panel_bg
+            if getattr(self, '_year_spin', None) is None:
+                self._year_spin = tk.Spinbox(self.days_frame, from_=1900, to=2100, width=6, font=("Segoe UI", 9), bg=year_bg, fg=year_fg, command=self._on_year_change)
+            self._year_spin.grid(row=0, column=5)
+            self._update_year_widget()
+            self._year_spin.bind('<Return>', lambda e: self._on_year_change())
+            self._year_spin.bind('<FocusOut>', lambda e: self._on_year_change())
+        except Exception:
+            self._year_spin = None
+
+        next_btn = tk.Button(self.days_frame, text='>', width=2, command=self._next_month)
+        next_btn.grid(row=0, column=6, padx=2, pady=2)
 
         wkdays = ['Mo','Tu','We','Th','Fr','Sa','Su']
-        panel_bg = getattr(self, '_panel_bg', self.days_frame.cget('bg'))
-        header = tk.Frame(self.days_frame, bg=panel_bg)
-        # use grid for header so all children of self.days_frame use grid (avoid pack/grid mix)
-        header.grid(row=0, column=0, columnspan=7, sticky='w')
         wk_fg = getattr(self.parent, 'subtext', '#000000')
         for i, d in enumerate(wkdays):
-            tk.Label(header, text=d, width=3, font=("Segoe UI", 9, 'bold'), bg=panel_bg, fg=wk_fg).grid(row=0, column=i)
+            tk.Label(self.days_frame, text=d, width=3, font=("Segoe UI", 9, 'bold'), bg=panel_bg, fg=wk_fg).grid(row=1, column=i)
 
         m = calendar.monthcalendar(self.year, self.month)
         for r, week in enumerate(m):
             for c, day in enumerate(week):
                 if day == 0:
                     lbl = tk.Label(self.days_frame, text='', width=3, bg=panel_bg)
-                    lbl.grid(row=r+1, column=c, padx=2, pady=2)
+                    lbl.grid(row=r+2, column=c, padx=2, pady=2)
                 else:
-                    # ensure day numbers are visible on dark themed panels
-                    day_bg = getattr(self.parent, 'panel', '#ffffff')
-                    day_fg = getattr(self.parent, 'text', '#000000')
                     btn = tk.Button(self.days_frame, text=str(day), width=3, command=lambda d=day: self._select(d),
                                     bg='#ffffff', fg='#000000', activebackground='#cfefff', activeforeground='#02101f', relief='flat')
-                    btn.grid(row=r+1, column=c, padx=2, pady=2)
+                    btn.grid(row=r+2, column=c, padx=2, pady=2)
 
     def _show_year_view(self, start_year=None):
         # show a grid of clickable years in the days_frame
@@ -310,16 +307,15 @@ class DatePicker:
             start_year = block
         self._years_start = start_year
 
-        header = tk.Frame(self.days_frame, bg=getattr(self, '_panel_bg', self.days_frame.cget('bg')))
-        header.grid(row=0, column=0, columnspan=4, sticky='w')
-        prev_btn = tk.Button(header, text='<', width=2, command=self._prev_years)
-        prev_btn.pack(side='left')
-        title = tk.Label(header, text=f"Years {self._years_start} - {self._years_start+11}", bg=getattr(self, '_panel_bg', '#fff'))
-        title.pack(side='left', padx=6)
-        next_btn = tk.Button(header, text='>', width=2, command=self._next_years)
-        next_btn.pack(side='left')
+        panel_bg = getattr(self, '_panel_bg', self.days_frame.cget('bg'))
+        prev_btn = tk.Button(self.days_frame, text='<', width=2, command=self._prev_years)
+        prev_btn.grid(row=0, column=0, padx=2, pady=2)
+        title = tk.Label(self.days_frame, text=f"Years {self._years_start} - {self._years_start+11}", bg=panel_bg)
+        title.grid(row=0, column=1, columnspan=5)
+        next_btn = tk.Button(self.days_frame, text='>', width=2, command=self._next_years)
+        next_btn.grid(row=0, column=6, padx=2, pady=2)
 
-        # draw years in 4 columns x 3 rows (12 years)
+        # draw years in 4 columns x 3 rows (12 years), starting at row 1
         y = self._years_start
         for r in range(3):
             for c in range(4):
@@ -686,30 +682,85 @@ class RoleSelectionUI:
             self.root.after(60, self._animate_role_glow)
 
     def _teacher_login_flow(self):
-        entered_username = simpledialog.askstring(
-            "Teacher Login",
-            "Enter teacher username:",
-            parent=self.root,
-        )
+        # custom modal dialog with username + password fields so Enter focuses password
+        def _show_login_dialog():
+            dlg = tk.Toplevel(self.root)
+            dlg.transient(self.root)
+            dlg.title("Teacher Login")
+            dlg.resizable(False, False)
+            dlg.grab_set()
 
-        if entered_username is None:
+            # center dialog over the main window
+            try:
+                dlg.update_idletasks()
+                rw = self.root.winfo_width()
+                rh = self.root.winfo_height()
+                rx = self.root.winfo_rootx()
+                ry = self.root.winfo_rooty()
+                dw = dlg.winfo_reqwidth()
+                dh = dlg.winfo_reqheight()
+                cx = rx + max(0, (rw - dw) // 2)
+                cy = ry + max(0, (rh - dh) // 2)
+                dlg.geometry(f'+{cx}+{cy}')
+            except Exception:
+                pass
+
+            container = tk.Frame(dlg, padx=12, pady=12)
+            container.pack(fill='both', expand=True)
+
+            tk.Label(container, text="Username:").grid(row=0, column=0, sticky='w')
+            username_var = tk.StringVar()
+            username_entry = tk.Entry(container, textvariable=username_var)
+            username_entry.grid(row=0, column=1, padx=(8,0), pady=6)
+
+            tk.Label(container, text="Password:").grid(row=1, column=0, sticky='w')
+            password_var = tk.StringVar()
+            password_entry = tk.Entry(container, textvariable=password_var, show='*')
+            password_entry.grid(row=1, column=1, padx=(8,0), pady=6)
+
+            result = {'username': None, 'password': None}
+
+            def _submit(event=None):
+                u = username_var.get().strip()
+                if not u:
+                    messagebox.showerror("Missing Data", "Teacher username is required.", parent=dlg)
+                    return
+                result['username'] = u
+                result['password'] = password_var.get() if password_var.get() is not None else ''
+                try:
+                    dlg.grab_release()
+                except Exception:
+                    pass
+                dlg.destroy()
+
+            def _cancel(event=None):
+                try:
+                    dlg.grab_release()
+                except Exception:
+                    pass
+                dlg.destroy()
+
+            # Enter in username focuses password
+            username_entry.bind('<Return>', lambda e: password_entry.focus_set())
+            # Enter in password submits
+            password_entry.bind('<Return>', _submit)
+
+            btn_frame = tk.Frame(container)
+            btn_frame.grid(row=2, column=0, columnspan=2, pady=(8,0))
+            tk.Button(btn_frame, text="OK", width=8, command=_submit).pack(side='left', padx=4)
+            tk.Button(btn_frame, text="Cancel", width=8, command=_cancel).pack(side='left', padx=4)
+
+            username_entry.focus_set()
+            self.root.wait_window(dlg)
+            if result['username'] is None:
+                return None
+            return result['username'], result['password']
+
+        dlg_res = _show_login_dialog()
+        if not dlg_res:
             return
 
-        entered_username = entered_username.strip()
-        if not entered_username:
-            messagebox.showerror("Missing Data", "Teacher username is required.")
-            return
-
-        entered_password = simpledialog.askstring(
-            "Teacher Login",
-            f"Enter password for username '{entered_username}':",
-            show="*",
-            parent=self.root,
-        )
-
-        if entered_password is None:
-            return
-
+        entered_username, entered_password = dlg_res
         teacher_info = self._verify_teacher_credentials(entered_username, entered_password)
         if teacher_info:
             self._show_teacher_portal_splash(teacher_info)
@@ -1469,9 +1520,20 @@ class SmartAttendanceUI:
         self.teacher_password_entry = self._packed_labeled_entry(right, "Teacher Password")
         self.teacher_password_entry.config(show="*")
 
-        # pressing Enter in username should move focus to password
+        # pressing Enter (or keypad Enter) in username should move focus to password
         try:
-            self.teacher_username_entry.bind('<Return>', lambda e: self.teacher_password_entry.focus_set())
+            def _focus_password(e=None):
+                try:
+                    self.teacher_password_entry.focus_set()
+                    try:
+                        self.teacher_password_entry.select_range(0, 'end')
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
+            self.teacher_username_entry.bind('<Return>', _focus_password)
+            self.teacher_username_entry.bind('<KP_Enter>', _focus_password)
         except Exception:
             pass
 
