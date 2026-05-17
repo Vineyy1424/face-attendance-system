@@ -8,7 +8,7 @@ import subprocess
 from datetime import datetime, date, timedelta
 import calendar
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from tkinter import ttk, messagebox
 
 import cv2
 import mysql.connector
@@ -122,6 +122,7 @@ class DatePicker:
         self.year = today.year
         self.month = today.month
         self.win = None
+        self.selected_date = None
 
     def show(self, x=None, y=None):
         if self.win is not None:
@@ -131,7 +132,6 @@ class DatePicker:
             except Exception:
                 self.win = None
 
-        print(f"DatePicker.show() year={self.year} month={self.month}")
         self.win = tk.Toplevel(self.parent.root if hasattr(self.parent, 'root') else self.parent)
         self.win.wm_overrideredirect(True)
         self.win.attributes('-topmost', True)
@@ -150,6 +150,17 @@ class DatePicker:
         panel_bg = getattr(self.parent, 'panel', None) or self.win.cget('bg')
         # store for use in _draw_calendar
         self._panel_bg = panel_bg
+
+        # sync calendar to current entry value when possible
+        try:
+            raw = self.entry.get().strip()
+            parsed = datetime.strptime(raw, '%Y-%m-%d').date()
+            self.selected_date = parsed
+            self.year = parsed.year
+            self.month = parsed.month
+        except Exception:
+            self.selected_date = None
+
         frame = tk.Frame(self.win, bd=1, relief='solid', bg=panel_bg)
         frame.pack()
 
@@ -251,14 +262,35 @@ class DatePicker:
         for w in self.days_frame.winfo_children():
             w.destroy()
         panel_bg = getattr(self, '_panel_bg', self.days_frame.cget('bg'))
+        text_fg = getattr(self.parent, 'text', '#000000')
+        subtext_fg = getattr(self.parent, 'subtext', '#3b4b5a')
+
+        for col in range(7):
+            self.days_frame.grid_columnconfigure(col, weight=1, uniform='cal')
 
         # header controls aligned to the same 7 columns as weekdays/days
-        prev_btn = tk.Button(self.days_frame, text='<', width=2, command=self._prev_month)
-        prev_btn.grid(row=0, column=0, padx=2, pady=2)
+        prev_btn = tk.Button(
+            self.days_frame,
+            text='<',
+            width=2,
+            command=self._prev_month,
+            bg='#ffffff',
+            fg='#032038',
+            activebackground='#d9f4ff',
+            activeforeground='#032038',
+            relief='flat',
+        )
+        prev_btn.grid(row=0, column=0, padx=2, pady=(2, 4), sticky='ew')
 
         # month title spans columns 1-4
-        self.title_lbl = tk.Label(self.days_frame, text=f"{calendar.month_name[self.month]}", bg=panel_bg, fg=getattr(self.parent, 'text', '#000000'), font=("Segoe UI", 9, 'bold'))
-        self.title_lbl.grid(row=0, column=1, columnspan=4)
+        self.title_lbl = tk.Label(
+            self.days_frame,
+            text=f"{calendar.month_name[self.month]}",
+            bg=panel_bg,
+            fg=text_fg,
+            font=("Segoe UI Semibold", 10),
+        )
+        self.title_lbl.grid(row=0, column=1, columnspan=4, sticky='ew')
         try:
             self.title_lbl.bind('<Button-1>', lambda e: self._show_year_view())
         except Exception:
@@ -266,35 +298,84 @@ class DatePicker:
 
         # year widget at column 5
         try:
-            year_fg = getattr(self.parent, 'text', '#000000')
+            year_fg = text_fg
             year_bg = panel_bg
-            if getattr(self, '_year_spin', None) is None:
-                self._year_spin = tk.Spinbox(self.days_frame, from_=1900, to=2100, width=6, font=("Segoe UI", 9), bg=year_bg, fg=year_fg, command=self._on_year_change)
-            self._year_spin.grid(row=0, column=5)
+            self._year_spin = tk.Spinbox(
+                self.days_frame,
+                from_=1900,
+                to=2100,
+                width=6,
+                font=("Segoe UI", 9),
+                bg=year_bg,
+                fg=year_fg,
+                command=self._on_year_change,
+                relief='flat',
+                buttonbackground='#d9f4ff',
+                insertbackground=year_fg,
+            )
+            self._year_spin.grid(row=0, column=5, padx=2, sticky='ew')
             self._update_year_widget()
             self._year_spin.bind('<Return>', lambda e: self._on_year_change())
             self._year_spin.bind('<FocusOut>', lambda e: self._on_year_change())
         except Exception:
             self._year_spin = None
 
-        next_btn = tk.Button(self.days_frame, text='>', width=2, command=self._next_month)
-        next_btn.grid(row=0, column=6, padx=2, pady=2)
+        next_btn = tk.Button(
+            self.days_frame,
+            text='>',
+            width=2,
+            command=self._next_month,
+            bg='#ffffff',
+            fg='#032038',
+            activebackground='#d9f4ff',
+            activeforeground='#032038',
+            relief='flat',
+        )
+        next_btn.grid(row=0, column=6, padx=2, pady=(2, 4), sticky='ew')
 
         wkdays = ['Mo','Tu','We','Th','Fr','Sa','Su']
-        wk_fg = getattr(self.parent, 'subtext', '#000000')
+        wk_fg = subtext_fg
         for i, d in enumerate(wkdays):
-            tk.Label(self.days_frame, text=d, width=3, font=("Segoe UI", 9, 'bold'), bg=panel_bg, fg=wk_fg).grid(row=1, column=i)
+            tk.Label(
+                self.days_frame,
+                text=d,
+                width=3,
+                font=("Segoe UI", 9, 'bold'),
+                bg=panel_bg,
+                fg=wk_fg,
+            ).grid(row=1, column=i, pady=(0, 2), sticky='ew')
 
         m = calendar.monthcalendar(self.year, self.month)
+        today = date.today()
         for r, week in enumerate(m):
             for c, day in enumerate(week):
                 if day == 0:
                     lbl = tk.Label(self.days_frame, text='', width=3, bg=panel_bg)
-                    lbl.grid(row=r+2, column=c, padx=2, pady=2)
+                    lbl.grid(row=r+2, column=c, padx=2, pady=2, sticky='ew')
                 else:
-                    btn = tk.Button(self.days_frame, text=str(day), width=3, command=lambda d=day: self._select(d),
-                                    bg='#ffffff', fg='#000000', activebackground='#cfefff', activeforeground='#02101f', relief='flat')
-                    btn.grid(row=r+2, column=c, padx=2, pady=2)
+                    cell_date = date(self.year, self.month, day)
+                    if self.selected_date and cell_date == self.selected_date:
+                        btn_bg = '#00e6ff'
+                        btn_fg = '#02101f'
+                    elif cell_date == today:
+                        btn_bg = '#dff8ff'
+                        btn_fg = '#032038'
+                    else:
+                        btn_bg = '#ffffff'
+                        btn_fg = '#02101f'
+                    btn = tk.Button(
+                        self.days_frame,
+                        text=str(day),
+                        width=3,
+                        command=lambda d=day: self._select(d),
+                        bg=btn_bg,
+                        fg=btn_fg,
+                        activebackground='#cfefff',
+                        activeforeground='#02101f',
+                        relief='flat',
+                        cursor='hand2',
+                    )
+                    btn.grid(row=r+2, column=c, padx=2, pady=2, sticky='ew')
 
     def _show_year_view(self, start_year=None):
         # show a grid of clickable years in the days_frame
@@ -308,19 +389,64 @@ class DatePicker:
         self._years_start = start_year
 
         panel_bg = getattr(self, '_panel_bg', self.days_frame.cget('bg'))
-        prev_btn = tk.Button(self.days_frame, text='<', width=2, command=self._prev_years)
-        prev_btn.grid(row=0, column=0, padx=2, pady=2)
-        title = tk.Label(self.days_frame, text=f"Years {self._years_start} - {self._years_start+11}", bg=panel_bg)
-        title.grid(row=0, column=1, columnspan=5)
-        next_btn = tk.Button(self.days_frame, text='>', width=2, command=self._next_years)
-        next_btn.grid(row=0, column=6, padx=2, pady=2)
+        for col in range(7):
+            self.days_frame.grid_columnconfigure(col, weight=1, uniform='cal')
 
-        # draw years in 4 columns x 3 rows (12 years), starting at row 1
+        prev_btn = tk.Button(
+            self.days_frame,
+            text='<',
+            width=2,
+            command=self._prev_years,
+            bg='#ffffff',
+            fg='#032038',
+            activebackground='#d9f4ff',
+            activeforeground='#032038',
+            relief='flat',
+        )
+        prev_btn.grid(row=0, column=0, padx=2, pady=(2, 4), sticky='ew')
+        title = tk.Label(
+            self.days_frame,
+            text=f"Years {self._years_start} - {self._years_start+11}",
+            bg=panel_bg,
+            fg=getattr(self.parent, 'text', '#000000'),
+            font=("Segoe UI Semibold", 10),
+        )
+        title.grid(row=0, column=1, columnspan=5, sticky='ew')
+        next_btn = tk.Button(
+            self.days_frame,
+            text='>',
+            width=2,
+            command=self._next_years,
+            bg='#ffffff',
+            fg='#032038',
+            activebackground='#d9f4ff',
+            activeforeground='#032038',
+            relief='flat',
+        )
+        next_btn.grid(row=0, column=6, padx=2, pady=(2, 4), sticky='ew')
+
+        # draw years in 4 columns x 3 rows (12 years) on a centered sub-grid
+        years_holder = tk.Frame(self.days_frame, bg=panel_bg)
+        years_holder.grid(row=1, column=0, columnspan=7, sticky='nsew')
+        for col in range(4):
+            years_holder.grid_columnconfigure(col, weight=1, uniform='yr')
+
         y = self._years_start
         for r in range(3):
             for c in range(4):
-                year_btn = tk.Button(self.days_frame, text=str(y), width=6, command=lambda yy=y: self._on_select_year(yy), bg='#ffffff', fg='#000000')
-                year_btn.grid(row=r+1, column=c, padx=4, pady=4)
+                year_btn = tk.Button(
+                    years_holder,
+                    text=str(y),
+                    width=6,
+                    command=lambda yy=y: self._on_select_year(yy),
+                    bg='#ffffff',
+                    fg='#02101f',
+                    activebackground='#cfefff',
+                    activeforeground='#02101f',
+                    relief='flat',
+                    cursor='hand2',
+                )
+                year_btn.grid(row=r, column=c, padx=3, pady=3, sticky='ew')
                 y += 1
 
     def _prev_years(self):
@@ -345,8 +471,8 @@ class DatePicker:
 
     def _select(self, day):
         dt = datetime(self.year, self.month, day).strftime('%Y-%m-%d')
-        print(f"DatePicker._select() -> {dt}")
         try:
+            self.selected_date = datetime(self.year, self.month, day).date()
             self.entry.delete(0, tk.END)
             self.entry.insert(0, dt)
             # notify via virtual event for callers
@@ -354,8 +480,8 @@ class DatePicker:
                 self.entry.event_generate('<<DatePicked>>')
             except Exception:
                 pass
-        except Exception as e:
-            print(f"DatePicker._select() error: {e}")
+        except Exception:
+            pass
         self.destroy()
 
 
@@ -690,33 +816,52 @@ class RoleSelectionUI:
             dlg.resizable(False, False)
             dlg.grab_set()
 
-            # center dialog over the main window
-            try:
-                dlg.update_idletasks()
-                rw = self.root.winfo_width()
-                rh = self.root.winfo_height()
-                rx = self.root.winfo_rootx()
-                ry = self.root.winfo_rooty()
-                dw = dlg.winfo_reqwidth()
-                dh = dlg.winfo_reqheight()
-                cx = rx + max(0, (rw - dw) // 2)
-                cy = ry + max(0, (rh - dh) // 2)
-                dlg.geometry(f'+{cx}+{cy}')
-            except Exception:
-                pass
+            bg = "#071026"
+            panel = "#0b3554"
+            text = "#eaf8ff"
+            subtext = "#9fd6ea"
+            accent = "#00e6ff"
 
-            container = tk.Frame(dlg, padx=12, pady=12)
+            dlg.configure(bg=bg)
+
+            container = tk.Frame(dlg, padx=14, pady=14, bg=panel)
             container.pack(fill='both', expand=True)
+            container.grid_columnconfigure(1, weight=1)
 
-            tk.Label(container, text="Username:").grid(row=0, column=0, sticky='w')
+            tk.Label(
+                container,
+                text="Teacher Login",
+                bg=panel,
+                fg=text,
+                font=("Segoe UI Semibold", 12),
+            ).grid(row=0, column=0, columnspan=2, sticky='w', pady=(0, 8))
+
+            tk.Label(container, text="Username", bg=panel, fg=subtext, font=("Segoe UI", 10)).grid(row=1, column=0, sticky='w')
             username_var = tk.StringVar()
-            username_entry = tk.Entry(container, textvariable=username_var)
-            username_entry.grid(row=0, column=1, padx=(8,0), pady=6)
+            username_entry = tk.Entry(
+                container,
+                textvariable=username_var,
+                bg="#071428",
+                fg=text,
+                insertbackground=text,
+                relief='flat',
+                font=("Segoe UI", 11),
+            )
+            username_entry.grid(row=1, column=1, padx=(10, 0), pady=6, sticky='ew', ipady=6)
 
-            tk.Label(container, text="Password:").grid(row=1, column=0, sticky='w')
+            tk.Label(container, text="Password", bg=panel, fg=subtext, font=("Segoe UI", 10)).grid(row=2, column=0, sticky='w')
             password_var = tk.StringVar()
-            password_entry = tk.Entry(container, textvariable=password_var, show='*')
-            password_entry.grid(row=1, column=1, padx=(8,0), pady=6)
+            password_entry = tk.Entry(
+                container,
+                textvariable=password_var,
+                show='*',
+                bg="#071428",
+                fg=text,
+                insertbackground=text,
+                relief='flat',
+                font=("Segoe UI", 11),
+            )
+            password_entry.grid(row=2, column=1, padx=(10, 0), pady=6, sticky='ew', ipady=6)
 
             result = {'username': None, 'password': None}
 
@@ -742,15 +887,59 @@ class RoleSelectionUI:
 
             # Enter in username focuses password
             username_entry.bind('<Return>', lambda e: password_entry.focus_set())
+            username_entry.bind('<KP_Enter>', lambda e: password_entry.focus_set())
             # Enter in password submits
             password_entry.bind('<Return>', _submit)
+            password_entry.bind('<KP_Enter>', _submit)
 
-            btn_frame = tk.Frame(container)
-            btn_frame.grid(row=2, column=0, columnspan=2, pady=(8,0))
-            tk.Button(btn_frame, text="OK", width=8, command=_submit).pack(side='left', padx=4)
-            tk.Button(btn_frame, text="Cancel", width=8, command=_cancel).pack(side='left', padx=4)
+            btn_frame = tk.Frame(container, bg=panel)
+            btn_frame.grid(row=3, column=0, columnspan=2, pady=(12, 0), sticky='e')
+            tk.Button(
+                btn_frame,
+                text="Login",
+                width=10,
+                command=_submit,
+                bg=accent,
+                fg="#02101f",
+                activebackground="#7ef6ff",
+                activeforeground="#02101f",
+                relief='flat',
+                font=("Segoe UI Semibold", 10),
+                cursor='hand2',
+            ).pack(side='left', padx=4)
+            tk.Button(
+                btn_frame,
+                text="Cancel",
+                width=10,
+                command=_cancel,
+                bg="#123763",
+                fg=text,
+                activebackground="#1b4d7d",
+                activeforeground=text,
+                relief='flat',
+                font=("Segoe UI", 10),
+                cursor='hand2',
+            ).pack(side='left', padx=4)
 
             username_entry.focus_set()
+            dlg.bind('<Escape>', _cancel)
+            dlg.protocol('WM_DELETE_WINDOW', _cancel)
+
+            # center dialog over the main window after widgets are laid out
+            try:
+                dlg.update_idletasks()
+                rw = self.root.winfo_width()
+                rh = self.root.winfo_height()
+                rx = self.root.winfo_rootx()
+                ry = self.root.winfo_rooty()
+                dw = dlg.winfo_width()
+                dh = dlg.winfo_height()
+                cx = rx + max(0, (rw - dw) // 2)
+                cy = ry + max(0, (rh - dh) // 2)
+                dlg.geometry(f'+{cx}+{cy}')
+            except Exception:
+                pass
+
             self.root.wait_window(dlg)
             if result['username'] is None:
                 return None
